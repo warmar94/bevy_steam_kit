@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+
+# Rust is pinned to our dev version (never @stable): a newer Rust's new clippy lints must not turn CI red on
+# unchanged code. Upgrading Rust = bump this in every job, run clippy, fix. Users are unaffected (rust-version).
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  # Every feature combination: each one must compile cleanly on its own (no feature may rely on another).
+  clippy:
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - "--no-default-features"
+          - "--features lobby"
+          - "--features stats"
+          - "--features leaderboards"
+          - "--features lobby,stats"
+          - "--features lobby,leaderboards"
+          - "--features stats,leaderboards"
+          - "--features steam"
+          - "--features lobby,steam"
+          - "--features stats,steam"
+          - "--features leaderboards,steam"
+          - "--all-features"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@v2
+      # Tests use the fake backend: no Steam client is needed.
+      - run: cargo test --no-default-features
+      - run: cargo test --features lobby
+      - run: cargo test --features stats
+      - run: cargo test --features leaderboards
+      - run: cargo test --features lobby,stats
+      - run: cargo test --features lobby,leaderboards
+      - run: cargo test --features stats,leaderboards
+      # The `steam` feature links the Steam API redistributable that steamworks-sys ships; building
+      # needs no Steam client. Everything (tests, examples) is built with it on every OS ...
+      - run: cargo build --features steam --tests --examples
+      - run: cargo build --all-features --tests --examples
+      # ... and the tests + README doctests run with it on Windows, where cargo puts the bundled
+      # library on PATH. Elsewhere they run without the feature (above).
+      - if: runner.os == 'Windows'
+        run: cargo test --features steam
+      - if: runner.os == 'Windows'
+        run: cargo test --features stats,steam
+      - if: runner.os == 'Windows'
+        run: cargo test --features leaderboards,steam
+      - if: runner.os == 'Windows'
+        run: cargo test --all-features
+
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --no-deps --all-features
+      - run: cargo doc --no-deps --no-default-features

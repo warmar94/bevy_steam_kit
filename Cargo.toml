@@ -1,0 +1,82 @@
+[package]
+name = "bevy_steam_kit"
+version = "0.1.0"
+edition = "2021"
+# Bevy 0.19's own minimum.
+rust-version = "1.95"
+description = "Steam for Bevy as opt-in features around one shared callback pump: lobbies, rich presence and friend-join requests (feature `lobby`), stats and achievements (feature `stats`), leaderboards (feature `leaderboards`), as Bevy messages, with a fake backend for tests."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/warmar94/bevy_steam_kit"
+readme = "README.md"
+keywords = ["bevy", "steam", "steamworks", "achievements", "leaderboards"]
+categories = ["game-development", "network-programming"]
+# Not part of the published package.
+exclude = ["NOTES.md", "docs/", "/target"]
+
+[features]
+default = []
+# Lobbies, rich presence, game invites and friend-join requests (the `lobby` module).
+lobby = []
+# The real Steam backend (`RealSteamBackend`) over steamworks. Without it the crate still builds and
+# the fake backend works, so games and tests compile on machines without the Steam SDK runtime.
+steam = ["dep:steamworks"]
+# User stats and achievements (the `stats` module). Uses Bevy's real-time clock for its store cadence.
+stats = ["dep:bevy_time", "steamworks?/raw-bindings"]
+# Leaderboards: find, upload and download scores (the `leaderboards` module).
+leaderboards = ["dep:bevy_time"]
+
+# Bevy is pinned EXACTLY and only its sub-crates are used, without default features: the crate adds
+# no Bevy feature a game did not ask for, and a game on Bevy 0.19.0 ends up with ONE Bevy.
+[dependencies]
+bevy_app = { version = "=0.19.0", default-features = false, features = ["std"] }
+bevy_ecs = { version = "=0.19.0", default-features = false, features = ["std"] }
+# The stats and leaderboards features' clock (`Time<Real>`) for store cadence and timeouts.
+bevy_time = { version = "=0.19.0", default-features = false, features = ["std"], optional = true }
+# Bevy's logging goes through `tracing`; its subscriber (LogPlugin) picks these messages up.
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+# Exactly the steamworks that renet_steam 3.0.0 (the Steam transport of bevy_renet 5.0 /
+# bevy_replicon_renet 0.20) accepts: two steamworks versions cannot link in one game.
+steamworks = { version = "=0.12.2", optional = true }
+
+[dev-dependencies]
+# Tests + examples: MinimalPlugins, headless.
+bevy = { version = "=0.19.0", default-features = false, features = ["std", "bevy_log"] }
+
+# Real-Steam examples: need the `steam` feature, a running Steam client and `steam_appid.txt`.
+[[example]]
+name = "host_lobby"
+required-features = ["steam", "lobby"]
+
+[[example]]
+name = "join_lobby"
+required-features = ["steam", "lobby"]
+
+[[example]]
+name = "stats_480"
+required-features = ["steam", "stats"]
+
+[[example]]
+name = "leaderboard_480"
+required-features = ["steam", "leaderboards"]
+
+# Fake backend, runs anywhere.
+[[example]]
+name = "quick_start"
+required-features = ["lobby"]
+
+[[test]]
+name = "lobby"
+required-features = ["lobby"]
+
+[[test]]
+name = "stats"
+required-features = ["stats"]
+
+[[test]]
+name = "leaderboards"
+required-features = ["leaderboards"]
+
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
