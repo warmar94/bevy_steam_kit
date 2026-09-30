@@ -56,7 +56,6 @@ without a Steam client.
 - [Compatibility](#compatibility)
 - [Examples](#examples)
 - [Testing with real Steam](#testing-with-real-steam)
-- [Migrating from bevy_steam_lobby](#migrating-from-bevy_steam_lobby)
 - [Limitations and FAQ](#limitations-and-faq)
 - [License](#license)
 - [Contributing](#contributing)
@@ -66,7 +65,7 @@ without a Steam client.
 ```toml
 [dependencies]
 bevy = "0.19.0"
-bevy_steam_kit = { version = "0.1", features = ["lobby", "stats", "leaderboards", "steam"] }
+bevy_steam_kit = { version = "0.1.0", features = ["lobby", "stats", "leaderboards", "steam"] }
 ```
 
 or from the repository, pinned to a release tag:
@@ -356,7 +355,7 @@ Enable the `steam` feature and add `steamworks` itself (the exact version the ki
 
 ```toml
 [dependencies]
-bevy_steam_kit = { version = "0.1", features = ["lobby", "steam"] }
+bevy_steam_kit = { version = "0.1.0", features = ["lobby", "steam"] }
 steamworks = "=0.12.2"
 ```
 
@@ -626,7 +625,7 @@ transport, which uses the same `steamworks` 0.12.2 (one copy in the build):
 
 ```toml
 [dependencies]
-bevy_steam_kit = { version = "0.1", features = ["lobby", "steam"] }
+bevy_steam_kit = { version = "0.1.0", features = ["lobby", "steam"] }
 steamworks = "=0.12.2"
 bevy_replicon = "0.44"
 bevy_replicon_renet = { version = "0.20", features = ["renet_steam"] }
@@ -1297,28 +1296,6 @@ The crate's own tests never talk to Steam. CI runs clippy for twelve feature set
 tests without features and with every non-`steam` set, and builds the tests and examples with
 `steam` and with all features; the tests with `steam` (`steam`, `stats,steam`,
 `leaderboards,steam`, all features, including the README examples) run on Windows only.
-
-## Migrating from bevy_steam_lobby
-
-`bevy_steam_kit` 0.1 continues `bevy_steam_lobby` 0.1: the lobby messages, `SteamLobby`, the
-enums, the helpers and their behaviour are unchanged. The pump moved from the lobby plugin into
-the kit's core, and the lobby became the feature `lobby`.
-
-| bevy_steam_lobby 0.1 | bevy_steam_kit 0.1 |
-|---|---|
-| `bevy_steam_lobby = { version = "0.1", features = ["steam"] }` | `bevy_steam_kit = { version = "0.1", features = ["lobby", "steam"] }` |
-| `use bevy_steam_lobby::*;` | `use bevy_steam_kit::*;` |
-| `SteamLobbyPlugin::default()` | `SteamKitPlugin::default()` |
-| `SteamLobbyPlugin { connect_prefix, set_connect_presence, check_launch_args }` | `SteamKitPlugin::default().with_lobby(LobbySettings { connect_prefix, set_connect_presence, check_launch_args })` |
-| `SteamLobbyConfig` (resource) | `LobbySettings` (resource) |
-| `SteamLobbySystems::Callbacks` / `::Requests` | `SteamKitSystems::Callbacks` / `::Requests` (plus `SteamKitSystems::Pump`, before `Callbacks`) |
-| `.before(SteamLobbySystems::Callbacks)` (ran before the pump) | `.before(SteamKitSystems::Pump)` (`.before(SteamKitSystems::Callbacks)` now runs after the pump) |
-| `.after(SteamLobbySystems::Callbacks)` | `.after(SteamKitSystems::Callbacks)` (unchanged meaning) |
-| `SteamLobbyBackendRes` | `SteamBackendRes` |
-| `SteamLobbyBackend` trait | `SteamBackend` (core: `local_id`, `friend_name`, `launch_command_line`, `pump`) + `LobbyBackend` (the lobby methods), reached with `backend.0.lobby()` |
-| `backend.0.lobby_data(lobby, key)` | `backend.0.lobby().and_then(\|l\| l.lobby_data(lobby, key))` |
-| `BackendEvent`, `FakeCall` | same variants, now `#[non_exhaustive]` and `PartialEq` without `Eq` (add a `_` arm to an exhaustive `match`) |
-| `LobbyKind`, `JoinSource` | same variants, now `#[non_exhaustive]` (add a `_` arm to an exhaustive `match`) |
 
 ## Limitations and FAQ
 

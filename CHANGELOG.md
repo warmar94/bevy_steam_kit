@@ -8,9 +8,8 @@ change or a Bevy / steamworks bump raises the minor version).
 
 ## [0.1.0] - 2026-09-29
 
-First release, for Bevy 0.19.0 and steamworks 0.12.2. It continues `bevy_steam_lobby` 0.1.0: the
-lobby functionality moved behind the feature `lobby`, the Steam callback pump moved from the lobby
-plugin into the kit's core, and two new features (`stats`, `leaderboards`) share that one pump.
+First release, for Bevy 0.19.0 and steamworks 0.12.2: a core that owns the one Steam callback
+pump, and three opt-in features on top of it (`lobby`, `stats`, `leaderboards`).
 
 ### Added
 
@@ -28,7 +27,7 @@ plugin into the kit's core, and two new features (`stats`, `leaderboards`) share
     `pump_count()`;
   - a stability promise for backend implementors: methods added later always have a default;
   - the helper `is_individual_steam_id64`.
-- **Feature `lobby`** (module `lobby`), with the API of `bevy_steam_lobby` 0.1.0:
+- **Feature `lobby`** (module `lobby`):
   - settings `LobbySettings` (`connect_prefix`, `set_connect_presence`, `check_launch_args`);
   - requests `CreateLobby` (member cap clamped to 250), `JoinLobby`, `LeaveLobby`, `InviteFriend`,
     `SetRichPresence`, `ClearRichPresence`;
@@ -85,22 +84,3 @@ plugin into the kit's core, and two new features (`stats`, `leaderboards`) share
   `lobby` + `steam`), `stats_480` (`stats` + `steam`) and `leaderboard_480` (`leaderboards` +
   `steam`) for Valve's test app 480; a README recipe for `bevy_replicon` 0.44 over `renet_steam`
   3.0.0.
-
-### Changed (compared with bevy_steam_lobby 0.1.0)
-
-- Crate `bevy_steam_lobby` -> `bevy_steam_kit`; the lobby needs the feature `lobby`.
-- `SteamLobbyPlugin { connect_prefix, set_connect_presence, check_launch_args }` ->
-  `SteamKitPlugin::default().with_lobby(LobbySettings { .. })`; the `SteamLobbyConfig` resource ->
-  `LobbySettings`.
-- `SteamLobbySystems::{Callbacks, Requests}` -> `SteamKitSystems::{Callbacks, Requests}`; the pump
-  itself is the new `SteamKitSystems::Pump`, ordered before `Callbacks` (a system that ran
-  `.before(SteamLobbySystems::Callbacks)`, i.e. before the pump, now uses
-  `.before(SteamKitSystems::Pump)`).
-- `SteamLobbyBackend` + `SteamLobbyBackendRes` -> `SteamBackend` (core methods) + `LobbyBackend`
-  (lobby methods, via `SteamBackend::lobby`) + `SteamBackendRes`.
-- `BackendEvent` and `FakeCall` are `#[non_exhaustive]` and no longer `Eq`; `LobbyKind` and
-  `JoinSource` are `#[non_exhaustive]`.
-- `LobbyErrorKind::InvalidRequest` is documented as what it always was: `JoinLobby` with lobby
-  id 0 (a NUL byte in a string fails as a refused call instead).
-- A backend whose `lobby()` returns `None` is treated like no backend by the lobby feature
-  (`NoBackend` errors, no launch-args check).
