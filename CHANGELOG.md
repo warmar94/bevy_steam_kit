@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (before 1.0, a breaking
 change or a Bevy / steamworks bump raises the minor version).
 
+## [0.1.1] - 2026-09-30
+
+Documentation only, no code changes.
+
+### Changed
+
+- README: section 10 recommends the companion crate `bevy_net_session` for connecting players
+  (host / join / leave over Steam or UDP), before the manual `renet_steam` recipe; install lines
+  name the full version.
+
 ## [0.1.0] - 2026-09-29
 
 First release, for Bevy 0.19.0 and steamworks 0.12.2: a core that owns the one Steam callback

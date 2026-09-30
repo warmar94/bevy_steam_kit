@@ -65,7 +65,7 @@ without a Steam client.
 ```toml
 [dependencies]
 bevy = "0.19.0"
-bevy_steam_kit = { version = "0.1.0", features = ["lobby", "stats", "leaderboards", "steam"] }
+bevy_steam_kit = { version = "0.1.1", features = ["lobby", "stats", "leaderboards", "steam"] }
 ```
 
 or from the repository, pinned to a release tag:
@@ -107,8 +107,9 @@ Steam.
 - **Friends list integration**: a lobby you create sets the rich-presence `connect` key for you,
   so friends get "Join Game"; leaving (or quitting) clears what the kit set.
 - **Transport-agnostic**: lobby data carries whatever you need (a host SteamID64, a build version)
-  and you connect with your own networking. A documented recipe covers `bevy_replicon` over
-  `renet_steam`.
+  and you connect with your own networking: the companion crate
+  [`bevy_net_session`](https://crates.io/crates/bevy_net_session) does it in a few lines, or wire
+  `bevy_replicon` over `renet_steam` yourself with the documented recipe.
 - **Fail closed, never panic**: Steam not running is a `LobbyError`, not a crash; inputs that
   would make `steamworks` panic never reach it (strings with an interior NUL byte are refused,
   a member cap above 250 is clamped); late or abandoned lobby results are left, never adopted.
@@ -355,7 +356,7 @@ Enable the `steam` feature and add `steamworks` itself (the exact version the ki
 
 ```toml
 [dependencies]
-bevy_steam_kit = { version = "0.1.0", features = ["lobby", "steam"] }
+bevy_steam_kit = { version = "0.1.1", features = ["lobby", "steam"] }
 steamworks = "=0.12.2"
 ```
 
@@ -506,7 +507,7 @@ fn on_entered(
         match host {
             Some(host) if version_ok && is_individual_steam_id64(host) => {
                 info!("lobby {} ({} members): connecting to host {host}", ev.lobby, b.lobby_member_count(ev.lobby));
-                // Start your client transport here (see section 10 for bevy_replicon).
+                // Start your client transport here (section 10: bevy_net_session or bevy_replicon).
             }
             _ => {
                 warn!("lobby {} is not joinable by this build", ev.lobby);
@@ -619,13 +620,59 @@ fn on_error(mut errors: MessageReader<LobbyError>) {
 
 ### 10. Wiring a transport (bevy_replicon + renet_steam)
 
-The kit stops at "you are in the lobby, here is its data". Connecting is yours. This recipe is
-tested with `bevy_replicon` 0.44, `bevy_replicon_renet` 0.20 and its `renet_steam` 3.0.0
+The kit stops at "you are in the lobby, here is its data". Connecting is yours.
+
+**The short way: [`bevy_net_session`](https://crates.io/crates/bevy_net_session).** A companion
+crate that hosts, joins and leaves `bevy_replicon` sessions over Steam P2P (or plain UDP for LAN
+tests) with the same code, adds a version-checked join handshake, a join validator, timeouts and a
+clean teardown, and manages the `renet_steam` transport for you. It uses the same `steamworks`
+0.12.2 and never pumps Steam, so the kit's pump serves both:
+
+```toml
+[dependencies]
+bevy_steam_kit = { version = "0.1.1", features = ["lobby", "steam"] }
+bevy_net_session = { version = "0.1.1", features = ["steam"] }
+```
+
+```rust,ignore
+use bevy::prelude::*;
+use bevy_net_session::*;
+use bevy_steam_kit::*;
+
+// Setup (once Steam is initialised): both crates share the one client; only the kit pumps.
+// app.add_plugins((SteamKitPlugin::default().with_lobby(LobbySettings::default()), NetSessionPlugin::default()))
+//    .insert_resource(SteamBackendRes(Box::new(RealSteamBackend::new(client.clone()))))
+//    .insert_resource(SteamNetClient(client));
+
+/// Host: once the session is up, open a lobby that names this host.
+fn open_lobby(mut started: MessageReader<SessionStarted>, mut lobby: MessageWriter<CreateLobby>) {
+    for ev in started.read() {
+        let Some(me) = ev.steam_id else { continue };
+        lobby.write(CreateLobby { kind: LobbyKind::FriendsOnly, max_members: 4, data: vec![("host".into(), me.to_string())] });
+    }
+}
+
+/// Joiner: in the lobby, connect to the host it names.
+fn connect(mut entered: MessageReader<LobbyEntered>, backend: Res<SteamBackendRes>, mut join: MessageWriter<JoinSession>) {
+    for ev in entered.read() {
+        let host = backend.0.lobby().and_then(|l| l.lobby_data(ev.lobby, "host")).and_then(|h| h.parse::<u64>().ok());
+        if let Some(host) = host {
+            join.write(JoinSession::steam(host));
+        }
+    }
+}
+```
+
+The host sends `HostSession::steam(4)` first; a joiner answers `JoinRequested` with `JoinLobby`
+as in section 4. Do not add `bevy_net_session`'s example pump: the kit already pumps. More:
+the `bevy_net_session` README, section "Combining it with Steam lobbies".
+
+**The manual way.** Wiring `renet_steam` yourself works too. This recipe is tested with `bevy_replicon` 0.44, `bevy_replicon_renet` 0.20 and its `renet_steam` 3.0.0
 transport, which uses the same `steamworks` 0.12.2 (one copy in the build):
 
 ```toml
 [dependencies]
-bevy_steam_kit = { version = "0.1.0", features = ["lobby", "steam"] }
+bevy_steam_kit = { version = "0.1.1", features = ["lobby", "steam"] }
 steamworks = "=0.12.2"
 bevy_replicon = "0.44"
 bevy_replicon_renet = { version = "0.20", features = ["renet_steam"] }
