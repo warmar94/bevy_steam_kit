@@ -39,11 +39,11 @@ impl StatValue {
 /// input.
 ///
 /// Reads and writes change Steam's in-memory copy only; [`store_stats`](Self::store_stats) sends
-/// them, and its outcome arrives later as a [`BackendEvent`](crate::BackendEvent) from
+/// them, and its outcome arrives as a [`BackendEvent`](crate::BackendEvent) from
 /// [`SteamBackend::pump`](crate::SteamBackend::pump).
 ///
 /// You may implement it for your own backend. Stability promise: the methods below stay required
-/// as they are, and every method added in a later version comes with a default implementation.
+/// as they are, and every method added to this trait comes with a default implementation.
 pub trait StatsBackend {
     /// Are the local user's stats loaded? `probe` is a stat or achievement name to test with
     /// (`None`: the backend picks its own test). Must be cheap: called about once a second until

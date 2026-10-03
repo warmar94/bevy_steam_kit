@@ -4,11 +4,13 @@
 [![CI](https://github.com/warmar94/bevy_steam_kit/actions/workflows/ci.yml/badge.svg)](https://github.com/warmar94/bevy_steam_kit/actions/workflows/ci.yml)
 [![Bevy 0.19.0](https://img.shields.io/badge/Bevy-0.19.0-informational)](https://bevyengine.org)
 [![steamworks 0.12.2](https://img.shields.io/badge/steamworks-0.12.2-informational)](https://crates.io/crates/steamworks)
+[![crates.io](https://img.shields.io/crates/v/bevy_steam_kit.svg)](https://crates.io/crates/bevy_steam_kit)
+[![docs.rs](https://docs.rs/bevy_steam_kit/badge.svg)](https://docs.rs/bevy_steam_kit)
 
 **Steam for [Bevy](https://bevyengine.org), as opt-in features.** Enable the parts of Steam your
 game uses; they all plug into one plugin that owns the one Steam callback pump of the process.
 
-Three Steam features today:
+Six Steam features:
 
 - **`lobby`**: create and join lobbies, friends-only or otherwise, rich presence so friends see
   **"Join Game"** in their Steam friends list, game invites, and every way a join request can
@@ -18,6 +20,13 @@ Three Steam features today:
   achievements, show progress popups, with batched stores at the cadence Valve asks for.
 - **`leaderboards`**: find leaderboards, upload scores (queued and rate-limited as Valve asks),
   download the top, the entries around the player, or the player's friends.
+- **`auth`**: Steam Web API tickets, so your game server learns who the player is (request, hex,
+  cancel; the ticket never appears in logs or `Debug` output).
+- **`friends`**: the friends list with online status, the game each friend plays and the
+  rich-presence `connect` of friends in your game, game invites carrying any connect string, every
+  join request as the raw connect string, user info for non-friends, avatars as RGBA bytes.
+- **`overlay`**: open the Steam overlay (a dialog, a profile, a web page, a store page, the invite
+  dialog) and know when it opens and closes.
 
 It is a **service**, not a framework: your game sends requests (`CreateLobby`, `JoinLobby`,
 `StatsRequest::UnlockAchievement`, ...) and reacts to facts (`LobbyCreated`, `JoinRequested`,
@@ -30,11 +39,15 @@ without a Steam client.
 ## Contents
 
 - [Features](#features)
+- [What the kit covers](#what-the-kit-covers)
 - [Highlights](#highlights)
 - [Quick start](#quick-start)
   - [Lobby quick start](#lobby-quick-start)
   - [Stats quick start](#stats-quick-start)
   - [Leaderboards quick start](#leaderboards-quick-start)
+  - [Auth quick start](#auth-quick-start)
+  - [Friends quick start](#friends-quick-start)
+  - [Overlay quick start](#overlay-quick-start)
 - [The one-pump rule](#the-one-pump-rule)
 - [Lobbies: how to use them](#lobbies-how-to-use-them)
   - [1. Add the plugin](#1-add-the-plugin)
@@ -50,13 +63,41 @@ without a Steam client.
   - [11. System order](#11-system-order)
   - [12. Testing your game with the fake backend](#12-testing-your-game-with-the-fake-backend)
 - [Stats and achievements](#stats-and-achievements)
+  - [Set up](#set-up)
+  - [Write stats and unlock achievements](#write-stats-and-unlock-achievements)
+  - [Read current values](#read-current-values)
+  - [Readiness: there is no "request stats" step](#readiness-there-is-no-request-stats-step)
+  - [Store cadence](#store-cadence)
+  - [Guarded traps](#guarded-traps)
+  - [Testing stats with the fake backend](#testing-stats-with-the-fake-backend)
+  - [Testing stats with real Steam (app 480)](#testing-stats-with-real-steam-app-480)
 - [Leaderboards](#leaderboards)
+  - [Requests and answers](#requests-and-answers)
+  - [Limits and queueing](#limits-and-queueing)
+  - [Guards and errors](#guards-and-errors)
+  - [Testing leaderboards](#testing-leaderboards)
+- [Web API tickets (auth)](#web-api-tickets-auth)
+- [Friends](#friends)
+  - [The list](#the-list)
+  - [Invites and joins](#invites-and-joins)
+  - [Avatars](#avatars)
+- [The Steam overlay](#the-steam-overlay)
 - [How it works](#how-it-works)
 - [API reference](#api-reference)
+  - [Core (always compiled)](#core-always-compiled)
+  - [Lobby: settings, state, backend (feature `lobby`)](#lobby-settings-state-backend-feature-lobby)
+  - [Lobby: request messages (you write)](#lobby-request-messages-you-write)
+  - [Lobby: fact messages (you read)](#lobby-fact-messages-you-read)
+  - [Lobby: enums and helpers](#lobby-enums-and-helpers)
+  - [Stats (feature `stats`)](#stats-feature-stats)
+  - [Leaderboards (feature `leaderboards`)](#leaderboards-feature-leaderboards)
+  - [Auth (feature `auth`)](#auth-feature-auth)
+  - [Friends (feature `friends`)](#friends-feature-friends)
+  - [Overlay (feature `overlay`)](#overlay-feature-overlay)
 - [Compatibility](#compatibility)
 - [Examples](#examples)
 - [Testing with real Steam](#testing-with-real-steam)
-- [Limitations and FAQ](#limitations-and-faq)
+- [FAQ](#faq)
 - [License](#license)
 - [Contributing](#contributing)
 
@@ -65,7 +106,7 @@ without a Steam client.
 ```toml
 [dependencies]
 bevy = "0.19.0"
-bevy_steam_kit = { version = "0.1.1", features = ["lobby", "stats", "leaderboards", "steam"] }
+bevy_steam_kit = { version = "0.2.0", features = ["lobby", "stats", "leaderboards", "auth", "friends", "overlay", "steam"] }
 ```
 
 or from the repository, pinned to a release tag:
@@ -73,7 +114,7 @@ or from the repository, pinned to a release tag:
 ```toml
 [dependencies]
 bevy = "0.19.0"
-bevy_steam_kit = { git = "https://github.com/warmar94/bevy_steam_kit", tag = "v0.1.0", features = ["lobby", "stats", "leaderboards", "steam"] }
+bevy_steam_kit = { git = "https://github.com/warmar94/bevy_steam_kit", tag = "v0.2.0", features = ["lobby", "stats", "leaderboards", "auth", "friends", "overlay", "steam"] }
 ```
 
 | feature | default | what it adds |
@@ -82,21 +123,71 @@ bevy_steam_kit = { git = "https://github.com/warmar94/bevy_steam_kit", tag = "v0
 | `lobby` | no | lobbies, lobby data, rich presence, game invites and friend-join requests as Bevy messages (the `lobby` module, also re-exported at the crate root) |
 | `stats` | no | the player's stats and achievements as Bevy messages, with batched stores (the `stats` module, also re-exported at the crate root; adds `bevy_time` for its clock) |
 | `leaderboards` | no | find leaderboards, upload scores, download entries (the `leaderboards` module, also re-exported at the crate root; adds `bevy_time`). Independent of `stats` |
+| `auth` | no | Steam Web API tickets for logging in to a game server (the `auth` module, also re-exported at the crate root; adds `bevy_time`) |
+| `friends` | no | the friends list, invites with any connect string, raw join requests, user info, avatars (the `friends` module, also re-exported at the crate root; adds `bevy_time`) |
+| `overlay` | no | open the Steam overlay, know when it opens and closes (the `overlay` module, also re-exported at the crate root) |
 | `steam` | no | `RealSteamBackend` over `steamworks` 0.12.2 (links the Steam API library; `steamworks-sys` ships the redistributable for Windows, Linux and macOS) |
 
 Features are additive: a feature you do not enable is not compiled at all. Without `steam` the
 crate depends on `bevy_app`, `bevy_ecs` (both without default features), `tracing`, and
-`bevy_time` with `stats` or `leaderboards`, and builds on machines without the Steam SDK runtime:
-the game compiles and runs, only without a real backend (requests are answered with `NoBackend`
-errors, or driven by the fake backend). A common setup is `lobby` / `stats` / `leaderboards`
-always and `steam` behind a feature of your own game, so development builds and tests run without
-Steam.
+`bevy_time` with `stats`, `leaderboards`, `auth` or `friends`, and builds on machines without the
+Steam SDK runtime: the game compiles and runs, only without a real backend (requests are answered
+with `NoBackend` errors, or driven by the fake backend). A common setup is the Steam features you
+use always on and `steam` behind a feature of your own game, so development builds and tests run
+without Steam.
+
+## What the kit covers
+
+The kit wraps the parts of Steam that need the one callback pump (callbacks and call results),
+or where `steamworks` 0.12.2 has traps (inputs that panic, states it does not map, results it
+discards):
+
+| feature | covers |
+|---|---|
+| `lobby` | lobbies, lobby data, rich presence, invites, every friend-join path |
+| `stats` | the player's stats and achievements, batched stores |
+| `leaderboards` | find, upload, download, with Valve's limits |
+| `auth` | Web API tickets for a game server |
+| `friends` | the friends list, invites with any connect string, raw joins, user info, avatars |
+| `overlay` | overlay dialogs, store and web pages, invite dialogs, open / closed |
+
+Other Steam calls (DLC ownership, the game's language, Steam Deck detection, the app's build or
+beta branch, ...) are single instant calls: make them with your own `steamworks::Client` clone,
+next to the kit, and never pump it. Steam Cloud saves need no code at all with Steam Auto-Cloud
+(configured on the partner site).
+
+```rust,no_run
+use bevy::prelude::*;
+use bevy_steam_kit::*;
+
+/// Your own handle on Steam, next to the kit's backend.
+#[derive(Resource, Clone)]
+struct Steam(steamworks::Client);
+
+fn main() {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, SteamKitPlugin::default()));
+    if let Ok(client) = steamworks::Client::init_app(480) {
+        app.insert_resource(SteamBackendRes(Box::new(RealSteamBackend::new(client.clone()))));
+        app.insert_resource(Steam(client));
+    }
+    app.add_systems(Startup, read_facts).run();
+}
+
+fn read_facts(steam: Option<Res<Steam>>) {
+    let Some(steam) = steam else { return };
+    let language = steam.0.apps().current_game_language();
+    let owns_dlc = steam.0.apps().is_dlc_installed(steamworks::AppId(480_001));
+    let on_deck = steam.0.utils().is_steam_running_on_steam_deck();
+    info!("language {language}, DLC {owns_dlc}, Steam Deck {on_deck}");
+}
+```
 
 ## Highlights
 
 - **One plugin, one pump**: `SteamKitPlugin` is added once and pumps Steam exactly once per
-  frame; every feature receives its share of that pump in the same frame. Adding a feature later
-  never adds a second pump.
+  frame; every feature receives its share of that pump in the same frame. Enabling another
+  feature never adds a second pump.
 - **ECS-shaped lobby API**: six request messages in, six fact messages out, one read-only
   resource (`SteamLobby`) and public `SystemSet`s to order your systems against.
 - **Every join path, one message**: `JoinRequested { lobby, from, source }` for an accepted lobby
@@ -113,15 +204,24 @@ Steam.
 - **Fail closed, never panic**: Steam not running is a `LobbyError`, not a crash; inputs that
   would make `steamworks` panic never reach it (strings with an interior NUL byte are refused,
   a member cap above 250 is clamped); late or abandoned lobby results are left, never adopted.
+  Steam quitting while the game runs is one `SteamLost` message, not a crash.
 - **Stats and achievements without the pitfalls**: no "request stats" step to forget, writes made
   before Steam is ready are held (never dropped silently), stores are batched to Valve's cadence and
   run once more on exit, and names that would crash `steamworks` are refused first.
 - **Leaderboards by name, with Valve's limits built in**: one upload at a time, at most 10 per
   10 minutes, every call answered exactly once by request id (found, uploaded, downloaded, or an
   error), inputs that would crash or corrupt memory in `steamworks` refused first.
+- **Logging in to your server**: one request gives a Web API ticket as lowercase hex for Steam's
+  `AuthenticateUserTicket`; the kit cancels live tickets on exit and never logs the ticket.
+- **Friends without the traps**: the friends list stays current (persona callbacks plus a 5 s
+  re-read for rich presence, which sends no callback), persona states are read without the
+  `steamworks` call that panics on "invisible", invites take any connect string, and joins arrive
+  raw for games that do not use the kit's lobbies.
+- **The overlay as messages**: one `OpenOverlay` message per dialog, store page, web page or
+  invite dialog, and `OverlayToggled` to pause the game while the overlay is open.
 - **Tested without Steam**: everything goes through the `SteamBackend` trait; the
   `FakeSteamBackend` drives lobbies, join requests, invites, stats, achievements, stores,
-  leaderboards and every failure deterministically.
+  leaderboards, tickets, friends, the overlay and every failure deterministically.
 
 ## Quick start
 
@@ -264,6 +364,139 @@ fn quit_after_a_few_frames(mut frames: Local<u32>, mut exit: MessageWriter<AppEx
 }
 ```
 
+### Auth quick start
+
+Get a Web API ticket for your game server, send it, cancel it (feature `auth`).
+
+```rust
+use bevy::prelude::*;
+use bevy_steam_kit::*;
+
+fn main() {
+    App::new()
+        .add_plugins((MinimalPlugins, SteamKitPlugin::default()))
+        .insert_resource(SteamBackendRes(Box::new(FakeSteamBackend::new())))
+        .add_systems(Update, (log_in, on_ticket).chain().before(SteamKitSystems::Requests))
+        .add_systems(Update, quit_after_a_few_frames)
+        .run();
+}
+
+fn log_in(mut done: Local<bool>, mut auth: ResMut<SteamAuth>, mut requests: MessageWriter<AuthRequest>) {
+    if !std::mem::replace(&mut *done, true) {
+        // The identity is agreed with the service that checks the ticket.
+        requests.write(AuthRequest::web_api_ticket(auth.next_id(), "my-game-server"));
+    }
+}
+
+fn on_ticket(mut ready: MessageReader<WebApiTicketReady>, mut requests: MessageWriter<AuthRequest>) {
+    for r in ready.read() {
+        let hex = r.ticket.to_hex(); // send this to your server, never to a log
+        info!("ticket ready ({} bytes)", r.ticket.len());
+        let _ = hex;
+        // Once the server answered:
+        requests.write(AuthRequest::cancel(r.id));
+    }
+}
+
+fn quit_after_a_few_frames(mut frames: Local<u32>, mut exit: MessageWriter<AppExit>) {
+    *frames += 1;
+    if *frames == 5 {
+        exit.write(AppExit::Success);
+    }
+}
+```
+
+### Friends quick start
+
+List friends playing this game and invite one to your server (feature `friends`).
+
+```rust
+use bevy::prelude::*;
+use bevy_steam_kit::*;
+
+fn main() {
+    let fake = FakeSteamBackend::new();
+    fake.set_friend_name(76_561_197_960_265_730, "A friend");
+    fake.add_friend(76_561_197_960_265_730, PersonaState::Online);
+    fake.set_friend_game(76_561_197_960_265_730, Some((480, 0)));
+    App::new()
+        .add_plugins((MinimalPlugins, SteamKitPlugin::default()))
+        .insert_resource(SteamBackendRes(Box::new(fake)))
+        .add_systems(Update, (show, on_join).before(SteamKitSystems::Requests))
+        .add_systems(Update, quit_after_a_few_frames)
+        .run();
+}
+
+fn show(
+    friends: Res<SteamFriends>,
+    mut changed: MessageReader<FriendsChanged>,
+    mut invited: Local<std::collections::HashSet<u64>>,
+    mut invite: MessageWriter<InviteToGame>,
+) {
+    if changed.read().count() == 0 {
+        return;
+    }
+    for f in friends.playing_this_game() {
+        // Invite each friend once, not on every change of the list.
+        if invited.insert(f.steam_id) {
+            info!("{} is playing", f.display_name());
+            invite.write(InviteToGame { steam_id: f.steam_id, connect: "+connect 203.0.113.7:7777".into() });
+        }
+    }
+}
+
+/// An accepted invite (or "Join Game") on the other side: the raw connect string.
+fn on_join(mut joins: MessageReader<ConnectRequested>) {
+    for j in joins.read() {
+        info!("connect to {:?}", j.connect);
+    }
+}
+
+fn quit_after_a_few_frames(mut frames: Local<u32>, mut exit: MessageWriter<AppExit>) {
+    *frames += 1;
+    if *frames == 5 {
+        exit.write(AppExit::Success);
+    }
+}
+```
+
+### Overlay quick start
+
+Open the store page from a menu and pause while the overlay is open (feature `overlay`).
+
+```rust
+use bevy::prelude::*;
+use bevy_steam_kit::*;
+
+#[derive(Resource, Default)]
+struct Paused(bool);
+
+fn main() {
+    App::new()
+        .add_plugins((MinimalPlugins, SteamKitPlugin::default()))
+        .insert_resource(SteamBackendRes(Box::new(FakeSteamBackend::new())))
+        .init_resource::<Paused>()
+        .add_systems(Startup, |mut open: MessageWriter<OpenOverlay>| {
+            open.write(OpenOverlay::store(480));
+        })
+        .add_systems(Update, (pause_on_overlay, quit_after_a_few_frames))
+        .run();
+}
+
+fn pause_on_overlay(mut toggled: MessageReader<OverlayToggled>, mut paused: ResMut<Paused>) {
+    for t in toggled.read() {
+        paused.0 = t.active;
+    }
+}
+
+fn quit_after_a_few_frames(mut frames: Local<u32>, mut exit: MessageWriter<AppExit>) {
+    *frames += 1;
+    if *frames == 5 {
+        exit.write(AppExit::Success);
+    }
+}
+```
+
 ## The one-pump rule
 
 Steam delivers everything asynchronous through one pump: `steamworks::Client::process_callbacks`
@@ -273,16 +506,24 @@ example), and the callbacks the caller asked to see. Steam hands each one out **
 second pump anywhere in the process steals results from the first.
 
 **The kit owns that pump.** `SteamKitPlugin` calls `process_callbacks` exactly once per frame, in
-`First` (`SteamKitSystems::Pump`), and every feature (`lobby`, `stats`, `leaderboards`) gets its
-events from that same call. So:
+`First` (`SteamKitSystems::Pump`), and every feature (`lobby`, `stats`, `leaderboards`, `auth`,
+`friends`, `overlay`) gets its events from that same call. So:
 
 - **Your game must not call `run_callbacks` or `process_callbacks`** anywhere, on any clone of the
   `Client`. Other crates that pump Steam on their own need to be configured not to (or not be used
   next to the kit).
 - **Keep your own `steamworks::Client` clone** for any Steam API the kit does not wrap (DLC checks,
-  user info, a networking transport, ...). Use it freely; just never pump it. Callbacks you
+  a networking transport, ...). Use it freely; just never pump it. Callbacks you
   register with `register_callback` on your clone still run: they are dispatched by the kit's
-  pump.
+  pump. `steamworks` keeps one closure per callback type for the whole process (a second
+  `register_callback` of the same type replaces the first). The kit registers exactly three,
+  its guards against panics inside `steamworks` 0.12.2: `SteamServersDisconnected` and
+  `SteamServerConnectFailure` (Steam quitting, [when Steam quits](#when-steam-quits)) and
+  `GameRichPresenceJoinRequested` (a connect string that is not UTF-8). They stay registered for
+  the rest of the process. Do not register those three types yourself: a registration made after
+  the kit's replaces the guard; one made before is replaced by the guard without notice, and
+  dropping its handle later removes the guard. A typed closure for them panics in `steamworks`
+  0.12.2 in those cases, with or without the kit.
 - Transports that register their own Steam callbacks (such as `renet_steam`) are served by the
   kit's pump too; they need no pump of their own.
 
@@ -337,8 +578,9 @@ app.add_plugins((
 ```
 
 Settings go through one builder method per feature (`with_lobby`, `with_stats`,
-`with_leaderboards`); the plugin has no public fields, so your code keeps compiling when another
-crate in the build enables more features. Without a `with_*` call a feature uses its defaults.
+`with_leaderboards`, `with_auth`, `with_friends`; `overlay` has no settings); the plugin has no
+public fields, so your code keeps compiling when another crate in the build enables more
+features. Without a `with_*` call a feature uses its defaults.
 
 `LobbySettings`:
 
@@ -356,7 +598,7 @@ Enable the `steam` feature and add `steamworks` itself (the exact version the ki
 
 ```toml
 [dependencies]
-bevy_steam_kit = { version = "0.1.1", features = ["lobby", "steam"] }
+bevy_steam_kit = { version = "0.2.0", features = ["lobby", "steam"] }
 steamworks = "=0.12.2"
 ```
 
@@ -375,7 +617,7 @@ fn main() {
     // 480 is Valve's public test app ("Spacewar"); use your own app id in a shipped game.
     match steamworks::Client::init_app(480) {
         Ok(client) => {
-            // Optional: warm up the relay network now if you will connect over Steam P2P later.
+            // Optional: warm up the relay network now if you connect over Steam P2P.
             client.networking_utils().init_relay_network_access();
             // The backend keeps a clone of the client alive for the app's lifetime.
             app.insert_resource(SteamBackendRes(Box::new(RealSteamBackend::new(client))));
@@ -395,10 +637,16 @@ fn main() {
   The backend holds one; keep your own clone in a resource if you use Steam elsewhere
   ([the one-pump rule](#the-one-pump-rule)).
 - **Steam must be running and logged in** before the game starts; `init_app` fails otherwise.
+- **Steam's library next to the binary.** `cargo run` finds Steam's API library by itself
+  (`steamworks-sys` copies it into its build output directory, `target/<profile>/build/steamworks-sys-*/out/`).
+  A built binary started any other way, and a shipped game, needs it next to the executable:
+  `steam_api64.dll` on Windows, `libsteam_api.dylib` on macOS; on Linux `libsteam_api.so` goes on
+  the library search path (for example `LD_LIBRARY_PATH`, or next to the binary with an
+  `$ORIGIN` rpath).
 - The backend can be inserted (or removed) at any time, except in `First` between
   `SteamKitSystems::Pump` and `SteamKitSystems::Callbacks` (the events pumped in that frame would
-  be dropped, with a warning). A game that starts Steam later, or only in some modes, just inserts
-  it then. The pump runs only while a backend exists.
+  be dropped, with a warning). A game that starts Steam after launch, or only in some modes, just
+  inserts it then. The pump runs only while a backend exists.
 
 ### 3. Host a lobby
 
@@ -448,7 +696,7 @@ lobby:
 | `source` | when | `from` |
 |---|---|---|
 | `JoinSource::LobbyInvite` | the player accepted a lobby invite, or used "Join Game" on a friend who is in a lobby, while the game was running | the friend's SteamID64 |
-| `JoinSource::RichPresence` | "Join Game" through the friend's rich-presence `connect` string while the game was running | the friend's SteamID64, or `0` when not from a friend |
+| `JoinSource::RichPresence` | a game invite carrying the `connect` string was accepted, or "Join Game" on a friend whose rich-presence `connect` is set, while the game was running (for a friend in a Steam lobby, such as a kit host, Steam reports "Join Game" as `LobbyInvite`) | the friend's SteamID64, or `0` when not from a friend |
 | `JoinSource::LaunchArgs` | the game was **started** by Steam to join (a cold launch with `+connect_lobby <id>`) | `0` |
 
 **The kit never joins by itself.** Your game decides what happens: join at once, ask the player,
@@ -555,7 +803,7 @@ fn invite(mut invites: MessageWriter<InviteFriend>) {
 
 fn on_invite_sent(mut sent: MessageReader<InviteSent>) {
     for ev in sent.read() {
-        // `ok` = Steam accepted the call. There is no delivery receipt.
+        // `ok` = the call was made with valid input. There is no delivery receipt.
         info!("invite to {} for lobby {}: {}", ev.steam_id, ev.lobby, if ev.ok { "sent" } else { "refused" });
     }
 }
@@ -626,12 +874,11 @@ The kit stops at "you are in the lobby, here is its data". Connecting is yours.
 crate that hosts, joins and leaves `bevy_replicon` sessions over Steam P2P (or plain UDP for LAN
 tests) with the same code, adds a version-checked join handshake, a join validator, timeouts and a
 clean teardown, and manages the `renet_steam` transport for you. It uses the same `steamworks`
-0.12.2 and never pumps Steam, so the kit's pump serves both:
+0.12.2 and never pumps Steam, so the kit's pump serves both. Add both crates:
 
-```toml
-[dependencies]
-bevy_steam_kit = { version = "0.1.1", features = ["lobby", "steam"] }
-bevy_net_session = { version = "0.1.1", features = ["steam"] }
+```text
+cargo add bevy_steam_kit --features lobby,steam
+cargo add bevy_net_session --features steam
 ```
 
 ```rust,ignore
@@ -667,12 +914,13 @@ The host sends `HostSession::steam(4)` first; a joiner answers `JoinRequested` w
 as in section 4. Do not add `bevy_net_session`'s example pump: the kit already pumps. More:
 the `bevy_net_session` README, section "Combining it with Steam lobbies".
 
-**The manual way.** Wiring `renet_steam` yourself works too. This recipe is tested with `bevy_replicon` 0.44, `bevy_replicon_renet` 0.20 and its `renet_steam` 3.0.0
-transport, which uses the same `steamworks` 0.12.2 (one copy in the build):
+**The manual way.** Wiring `renet_steam` yourself works too. This recipe uses `bevy_replicon`
+0.44, `bevy_replicon_renet` 0.20 and its `renet_steam` 3.0.0 transport, which uses the same
+`steamworks` 0.12.2 (one copy in the build):
 
 ```toml
 [dependencies]
-bevy_steam_kit = { version = "0.1.1", features = ["lobby", "steam"] }
+bevy_steam_kit = { version = "0.2.0", features = ["lobby", "steam"] }
 steamworks = "=0.12.2"
 bevy_replicon = "0.44"
 bevy_replicon_renet = { version = "0.20", features = ["renet_steam"] }
@@ -780,18 +1028,20 @@ Things that bite:
 | `SteamKitSystems::Pump` | `First`, before Bevy's `MessageUpdateSystems` | pump Steam once (the only `process_callbacks` of the process) and buffer the events |
 | `SteamKitSystems::Callbacks` | `First`, after `Pump`, before `MessageUpdateSystems` | every feature applies its events. Lobby: completions, the launch-args check; writes `LobbyCreated`, `LobbyEntered`, `JoinRequested`, create/join `LobbyError`s |
 | `SteamKitSystems::Callbacks` | (same) | stats: `StatsReady` (Steam reloaded the stats), `StatsStored`, `AchievementUnlocked`, `AchievementProgress`, store `StatsError`s. Leaderboards: `LeaderboardFound`, `ScoreUploaded`, `ScoresDownloaded`, Steam-side `LeaderboardError`s |
-| `SteamKitSystems::Requests` | `Update` | lobby: handle `CreateLobby`, `JoinLobby`, `LeaveLobby`, `InviteFriend`, `SetRichPresence`, `ClearRichPresence`; write `InviteSent`, `LobbyLeft` and request `LobbyError`s. Stats: readiness, the request stream, the store policy. Leaderboards: requests (a cached `Find` is answered here), timeouts, the upload queue |
-| `SteamKitSystems::Requests` | `Last` | on `AppExit`: lobby leaves and clears presence; stats applies late requests, reports held writes, stores a last time; leaderboards answers everything waiting with `Exiting` |
+| `SteamKitSystems::Callbacks` | (same) | auth: `WebApiTicketReady`, Steam-side `AuthError`s. Friends: `ConnectRequested`, which friends to re-read. Overlay: `OverlayToggled` |
+| `SteamKitSystems::Requests` | `Update` | lobby: handle `CreateLobby`, `JoinLobby`, `LeaveLobby`, `InviteFriend`, `SetRichPresence`, `ClearRichPresence`; write `InviteSent`, `LobbyLeft` and request `LobbyError`s. Stats: readiness, the request stream, the store policy. Leaderboards: requests (a cached `Find` is answered here), timeouts, the upload queue. Auth: requests, cancels, timeouts. Friends: re-reads (`SteamFriends`, `FriendsChanged`), avatars, `UserInfoReady`, invites (`GameInviteSent`), `FriendsError`s. Overlay: `OpenOverlay` (`OverlayError`s) |
+| `SteamKitSystems::Requests` | `Last` | on `AppExit`: lobby leaves and clears presence; stats applies late requests, reports held writes, stores a last time; leaderboards answers everything waiting with `Exiting`; auth answers waiting requests with `Exiting` and cancels live tickets |
 
 | your system | order it |
 |---|---|
 | writes a request message (`CreateLobby`, `StatsRequest`, `LeaderboardRequest`, ...) and wants it handled this frame | `.before(SteamKitSystems::Requests)` in `Update` (otherwise it is handled next frame, which is also fine) |
-| calls `SteamLeaderboards::next_id()` (takes `ResMut<SteamLeaderboards>`) | `.before(SteamKitSystems::Requests)` in `Update` (strict ambiguity checks need an order against the kit's systems) |
+| calls `SteamLeaderboards::next_id()` / `SteamAuth::next_id()` (takes `ResMut<..>`) | `.before(SteamKitSystems::Requests)` in `Update` (strict ambiguity checks need an order against the kit's systems) |
+| reads `SteamFriends` or `SteamOverlay` in `Update` | order it against `SteamKitSystems::Requests` (`.after` to see this frame's re-read) |
 | reads facts from Steam (`LobbyCreated`, `LobbyEntered`, `JoinRequested`, `StatsStored`, `AchievementUnlocked`, `ScoreUploaded`, ...) | anywhere from `PreUpdate` on: they are written in `First`, in the frame Steam delivered them |
 | reads what the request handler writes (`InviteSent`, `LobbyLeft`, request errors) | `.after(SteamKitSystems::Requests)` to see them this frame, otherwise next frame |
 | runs in `First` | order it against `SteamKitSystems::Pump` / `Callbacks` and against Bevy's `MessageUpdateSystems` (strict ambiguity checks) |
 | reads `SteamLobby` | anywhere; it changes in `First`, `Update` and `Last` (`generation` bumps on every change) |
-| writes `AppExit` | anywhere before `Last`: every feature's exit handling (leave the lobby, the final stats store, answering waiting leaderboard requests) runs in `SteamKitSystems::Requests` in `Last` |
+| writes `AppExit` | anywhere before `Last`: every feature's exit handling (leave the lobby, the final stats store, answering waiting leaderboard and auth requests, cancelling live tickets) runs in `SteamKitSystems::Requests` in `Last` |
 
 ### 12. Testing your game with the fake backend
 
@@ -863,7 +1113,7 @@ The same `SteamBackendRes` as for lobbies turns it on ([section 2](#2-turn-steam
 | `stats_store_interval` | 60 s | stat changes are stored this long after the first unsaved change |
 | `achievement_store_delay` | 1 s | achievement changes are stored this long after the first one (a burst of unlocks is one store; the unlock popup stays prompt) |
 | `min_store_gap` | 10 s | never two stores closer than this |
-| `store_timeout` | 30 s | a store whose outcome never arrives is given up (`StoreTimedOut`) and stored again later |
+| `store_timeout` | 30 s | a store whose outcome never arrives is given up (`StoreTimedOut`) and the changes are stored again |
 | `store_on_exit` | `true` | store unsaved changes on `AppExit` |
 | `max_queued` | 256 | writes held while stats are not ready |
 
@@ -897,10 +1147,10 @@ fn on_unlocked(mut unlocked: MessageReader<AchievementUnlocked>) {
   (`StatsRequest::SetStat { name, value }`) or with the helpers `set_stat`, `add_stat`,
   `unlock_achievement`, `clear_achievement`, `indicate_achievement_progress`.
 - Write requests before `SteamKitSystems::Requests` in `Update` to have them applied the same
-  frame. A request written later in the frame the game exits is still applied before the exit
-  store.
+  frame. A request written after that set in the frame the game exits is still applied before
+  the exit store.
 - The value's variant must match the stat's type on the partner site (`INT` = `StatValue::I32`,
-  `FLOAT` = `StatValue::F32`); a mismatch, an unknown name, or a value Steam will not take is a
+  `FLOAT` = `StatValue::F32`); a mismatch, an unknown name, or a value Steam does not take is a
   `StatsError` with `StatsErrorKind::Refused`.
 - `AddStat` reads, adds and writes (an `I32` sum saturates).
 - `UnlockAchievement` on an unlocked achievement does nothing. `ClearAchievement` locks one again
@@ -931,7 +1181,8 @@ fn show_progress(backend: Res<SteamBackendRes>, stats: Res<SteamStats>) {
 ```
 
 `SteamStats` (read-only): `is_ready()`, `has_unsaved()`, `store_in_flight()`, `queued()`,
-`stores_started()`. `StatsReady` is written when stats become ready, and again whenever Steam
+`stores_started()` (store attempts, counting one Steam refused locally). `StatsReady` is written
+when stats become ready, and again whenever Steam
 reloads the local user's stats (read your values again then).
 
 ### Readiness: there is no "request stats" step
@@ -960,7 +1211,7 @@ kit batches:
 Outcomes: `StatsStored` on success; `AchievementUnlocked` / `AchievementProgress` per achievement
 Steam confirmed; `StatsError` with `StoreRejected` when a stat broke a constraint set on the
 partner site (Steam restores its values: read them again), `StoreFailed` / `StoreTimedOut` (the
-changes are stored again later), `StoreRefused` when Steam refused the store locally.
+changes are stored again), `StoreRefused` when Steam refused the store locally.
 
 ### Guarded traps
 
@@ -973,8 +1224,8 @@ changes are stored again later), `StoreRefused` when Steam refused the store loc
 | NaN / infinite floats (Steam's behaviour is undocumented) | refused with `StatsErrorKind::NotFinite` |
 | progress with `max == 0` | refused with `StatsErrorKind::InvalidRequest` |
 
-One trap cannot be guarded from outside `steamworks`: an achievement API name that is not valid
-UTF-8 panics inside the callback pump. Use ASCII API names (the partner site does).
+Achievement API names are ASCII, as the partner site defines them: `steamworks` 0.12.2 converts
+the names it receives inside the callback pump as UTF-8.
 
 ### Testing stats with the fake backend
 
@@ -1029,8 +1280,8 @@ still pending is rejected with `DuplicateId` (carrying that id) while the pendin
 gets its own answer, so that id then sees two messages; `next_id` never causes this. If you pick
 ids by hand, keep them unique while pending, and when mixing with `next_id` use ids at or above
 `LeaderboardRequestId::FIRST_MANUAL` (the kit never issues those). Boards are named; the kit finds
-each one once and caches its handle, so an upload or download to a board it has not seen yet finds
-it first (never creating it).
+each one once and caches its handle, so an upload or download to a board it has not found before
+finds it first (never creating it).
 
 Requests still waiting are always answered: with `NoBackend` when the backend is removed, and with
 `Exiting` on `AppExit` (write `AppExit` before `Last`).
@@ -1092,11 +1343,11 @@ Uploads run **one at a time** (Valve: one outstanding call) and at most `uploads
 `TimePlugin` there are no timeouts and no upload window (still one upload at a time); calls
 started before a clock appears are timed from the moment it does.
 
-### Guards and honest errors
+### Guards and errors
 
 Checked before Steam is called: a board name that is empty, longer than 127 bytes or contains a
-NUL byte (`InvalidName`; `steamworks` would panic on the NUL; the SDK's limit is 128 and may count
-the terminator, so the kit keeps to 127); more than 64 details (`TooManyDetails`); an unusable
+NUL byte (`InvalidName`; `steamworks` would panic on the NUL; the kit keeps to 127 bytes, inside
+the SDK's limit of 128); more than 64 details (`TooManyDetails`); an unusable
 range (`InvalidRange`: `Global` from rank 0, reversed or past `i32::MAX`, or more rows than
 `max_download_rows`); an id still pending (`DuplicateId`, answering only the rejected
 duplicate). Downloads always leave room
@@ -1105,26 +1356,272 @@ around-user window's negative start is passed the way `steamworks` needs it.
 
 Errors say what Steam said, nothing more: `NotFound`, `IoFailure` (the only failure `steamworks`
 0.12.2 reports), `UploadRejected` (Steam did not accept the upload and gives no reason, for
-example a "trusted" board that only takes scores from a server; whether exceeding Steam's rate
-limit shows up this way is not verified), `TimedOut`, and the kit's own `NoBackend`, `Exiting`,
-`QueueFull`.
-
-**Not supported** (not wrapped by `steamworks` 0.12.2): downloading the entries of chosen users,
-and attaching user-generated content to an entry.
+example a "trusted" board that only takes scores from a server), `TimedOut`, and the kit's own
+`NoBackend`, `Exiting`, `QueueFull`.
 
 ### Testing leaderboards
 
 With the fake backend: `add_leaderboard(name, sort, display)`, `add_leaderboard_entry(board,
 steam_id, score, details)`, `set_friends(ids)`, `fail_next_leaderboard_call(..)` with
-`FakeLeaderboardFailure::{IoFailure, Rejected, NoAnswer}`, `leaderboard_entries(board)`. The fake
-simplifies two things real Steam may do differently (not verified): ties rank by earlier upload,
-and an around-user window is clipped at the board's edges.
+`FakeLeaderboardFailure::{IoFailure, Rejected, NoAnswer}`, `leaderboard_entries(board)`. In the
+fake, ties rank by earlier upload and an around-user window is clipped at the board's edges.
 
 With real Steam, app 480 ("Spacewar") has the board "Feet Traveled" (descending, numeric, shared
 by everyone testing with 480). `cargo run --example leaderboard_480 --features
 leaderboards,steam` finds it and downloads the top 10, your friends and the entries around you
 (read only); `-- --upload 1` uploads a score of 1 with `KeepBest` (public, and a game cannot
 delete it) and shows the neighbourhood. The example never creates a board.
+
+## Web API tickets (auth)
+
+Feature `auth`: a ticket that proves to **your game server** who the player is. The game asks
+Steam for a ticket for an identity (a name of the service, agreed with it), sends the ticket as
+hex to the server, and the server checks it with Steam's Web API
+(`ISteamUserAuth/AuthenticateUserTicket`, with the same identity) and gets the player's SteamID.
+Everything below uses `use bevy::prelude::*; use bevy_steam_kit::*;` and the `auth` feature.
+
+```rust
+use bevy::prelude::*;
+use bevy_steam_kit::*;
+
+/// The id of the login ticket, to cancel it once the server answered.
+#[derive(Resource, Default)]
+struct Login(Option<AuthRequestId>);
+
+/// Order request writers `.before(SteamKitSystems::Requests)`.
+fn start_login(mut auth: ResMut<SteamAuth>, mut login: ResMut<Login>, mut requests: MessageWriter<AuthRequest>) {
+    let id = auth.next_id();
+    login.0 = Some(id);
+    requests.write(AuthRequest::web_api_ticket(id, "my-game-server"));
+}
+
+fn on_ticket(mut ready: MessageReader<WebApiTicketReady>, mut errors: MessageReader<AuthError>) {
+    for r in ready.read() {
+        let _body = format!("ticket={}", r.ticket.to_hex()); // POST it to your server
+    }
+    for e in errors.read() {
+        warn!("no ticket: {:?} ({})", e.kind, e.message);
+    }
+}
+
+/// When the server answered (success or not).
+fn server_answered(mut login: ResMut<Login>, mut requests: MessageWriter<AuthRequest>) {
+    if let Some(id) = login.0.take() {
+        requests.write(AuthRequest::cancel(id));
+    }
+}
+```
+
+| request (`AuthRequest`, one ordered stream) | answer |
+|---|---|
+| `WebApiTicket { id, identity }` (helper `web_api_ticket(id, identity)`) | `WebApiTicketReady { id, identity, ticket }` or `AuthError { id, kind, message }` |
+| `Cancel { id }` (helper `cancel(id)`) | none for a delivered ticket (it is cancelled at Steam); a request still waiting is cancelled and answered `AuthError` with `Cancelled`; an unknown id is ignored |
+
+- Every accepted `WebApiTicket` gets exactly one answer. Ids work like the leaderboards' ones:
+  `SteamAuth::next_id()` never returns an id that is pending or live; hand-picked ids stay at or
+  above `AuthRequestId::FIRST_MANUAL` when mixing. An id still in use is rejected with
+  `DuplicateId` (answering only the rejected request).
+- `WebApiTicket`: `bytes()`, `to_hex()` (lowercase, two characters per byte), `len()`,
+  `is_empty()`. It is a credential: its `Debug` prints `WebApiTicket(<n> bytes)` only, there is no
+  `Display`, the kit's logs name the identity and the length only, and the `WebApiTicket` value
+  overwrites its bytes with zeros when it is dropped; copies you make (such as the hex string)
+  are yours to handle. Send it to your server and nowhere else.
+- A ticket stays valid at Steam until it is cancelled or the session ends; cancel it once the
+  server answered. On `AppExit` the kit cancels every live ticket (`cancel_on_exit`) and answers
+  waiting requests with `Exiting`.
+- `AuthErrorKind`: `NoBackend`, `InvalidIdentity` (a NUL byte; `steamworks` would panic on it),
+  `DuplicateId`, `Failed` (Steam's failure text in `message`, or Steam refused the request at
+  once, for example when not logged on),
+  `TimedOut` (no answer within `timeout`; the request is cancelled), `Cancelled`, `Exiting`.
+- Only tickets the kit requested are matched: a ticket your game requests on its own `Client`
+  clone is left to your code.
+
+| `AuthSettings` field | default | meaning |
+|---|---|---|
+| `timeout` | 30 s | a request without an answer is given up and cancelled (`TimedOut`; needs Bevy's `TimePlugin`) |
+| `cancel_on_exit` | `true` | cancel every live ticket on `AppExit` |
+
+`SteamAuth` (read): `is_pending(id)`, `is_live(id)`, `live_tickets()`, and `next_id()`.
+
+Testing: the fake backend answers on the next pump with the bytes
+`FakeSteamBackend::fake_web_api_ticket(op)` (`FAKE-TICKET-<op>`, the kit's ops count 1, 2, 3, ...);
+`fail_next_auth_ticket(FakeAuthFailure::{Refused, Failed, NoAnswer})`, `live_auth_tickets()` (the
+identities not cancelled). With real Steam: `cargo run --example auth_480 --features auth,steam`
+requests a ticket and prints only its length and timing.
+
+## Friends
+
+Feature `friends`: the local user's friends as a resource, invites with any connect string, and
+join requests as raw connect strings. Everything below uses `use bevy::prelude::*; use
+bevy_steam_kit::*;` and the `friends` feature.
+
+### The list
+
+```rust
+use bevy::prelude::*;
+use bevy_steam_kit::*;
+
+/// Order it `.after(SteamKitSystems::Requests)` in `Update` to see this frame's re-read.
+fn friends_panel(friends: Res<SteamFriends>, mut changed: MessageReader<FriendsChanged>) {
+    for c in changed.read() {
+        info!("friends: +{} -{} ~{}", c.added.len(), c.removed.len(), c.changed.len());
+    }
+    for f in friends.online() {
+        let playing = if f.plays(friends.app_id()) { " (in this game)" } else { "" };
+        info!("{} {:?}{playing}", f.display_name(), f.state);
+    }
+}
+```
+
+The kit reads the list when a friends-capable backend appears and keeps `SteamFriends` current:
+Steam's `PersonaStateChange` callback for a friend re-reads that friend in the same frame's
+`Update`, and the whole list is re-read every `refresh_interval` (5 s; a friend's rich presence
+changes send no callback) and on `RefreshFriends`. Each difference is one `FriendsChanged { added,
+removed, changed }` (at most one per frame; the first read lists everyone as `added`; the local
+user's id is in `changed` when `me()` changed). Removing the backend empties the list (one
+`FriendsChanged` with everyone `removed`). `me()` holds the local user's state as friends see it
+(`Online`, `Away`, `Invisible`, ...), re-read on the local user's persona change and on every
+full re-read. Each full re-read reads every friend from Steam's local cache (no network
+traffic).
+
+- `SteamFriends`: `is_loaded()`, `list()` (sorted by SteamID64), `get(id)`, `online()`,
+  `playing_this_game()`, `me()`, `app_id()`, `generation()`.
+- `FriendInfo`: `steam_id`, `name`, `nickname`, `state: PersonaState`, `game: Option<FriendGame>`
+  (`app_id`, `lobby` (0 = none), `server`), `connect` (the friend's rich-presence `connect`, read
+  only while they play this game); `display_name()`, `is_online()`, `plays(app_id)`.
+- `PersonaState`: `Offline`, `Online`, `Busy`, `Away`, `Snooze`, `LookingToTrade`,
+  `LookingToPlay`, `Invisible`, `Unknown`; `is_online()`. Read without `steamworks`' own
+  conversion, which panics on states it does not know (such as `Invisible`).
+- Names are personal data: the kit logs counts, never names.
+
+### Invites and joins
+
+```rust
+use bevy::prelude::*;
+use bevy_steam_kit::*;
+
+fn invite(mut invites: MessageWriter<InviteToGame>) {
+    invites.write(InviteToGame { steam_id: 76_561_197_960_265_730, connect: "+connect 203.0.113.7:7777".into() });
+}
+
+fn on_join(mut joins: MessageReader<ConnectRequested>) {
+    for j in joins.read() {
+        // The string the inviter sent (or the friend's rich-presence `connect`), as it arrived.
+        info!("join via {:?}: {:?}", j.source, j.connect);
+    }
+}
+```
+
+- `InviteToGame { steam_id, connect }` sends a Steam game invite with any connect string (1 to
+  255 bytes, no NUL; a user's SteamID64). `GameInviteSent { steam_id, connect, ok }` follows;
+  `ok` is Steam's own answer to the call, not a delivery receipt (Steam answers `true` also for
+  a friend who is invisible and for an id that is not a friend). The lobby feature's `InviteFriend` stays the way to invite to the kit's
+  own lobby.
+- `ConnectRequested { connect, from, source }` is every join that reaches the running game:
+  an accepted invite, or "Join Game" on a friend whose rich presence has `connect`
+  (`ConnectSource::RichPresence`; `from` = the friend, `0` when unknown). "Join Game" on a friend
+  who is in a Steam lobby (such as a kit host) arrives as a lobby join instead: the `lobby`
+  feature's `JoinRequested` with `LobbyInvite`, and no `ConnectRequested`. With
+  `launch_connect_prefix` set, a game Steam **started** with the string (a cold launch) reports it
+  once on the first frame (`ConnectSource::LaunchArgs`; the text from the prefix to the end of the
+  process arguments, or of Steam's launch command line).
+- With the `lobby` feature also enabled, a `+connect_lobby <id>` join is reported by both: a
+  `JoinRequested` and a `ConnectRequested`.
+- `RequestUserInfo { steam_id, name_only }` loads a non-friend's persona (for example a
+  leaderboard row). Every request gets exactly one answer: `UserInfoReady { steam_id, name }`
+  once Steam has it (at once for a friend or a user Steam already knows), or a `FriendsError`
+  with `TimedOut` (after `user_info_timeout`), `NoBackend`, `InvalidSteamId`, or `Exiting` (the
+  app exited first: answered in `Last` on `AppExit`). Two requests for the same user get two
+  answers.
+- `FriendsError { request, steam_id, kind, message }`: `request` is `FriendsRequestKind::Invite`
+  or `UserInfo`, `steam_id` the user the request named; `kind`: `NoBackend`, `InvalidSteamId`,
+  `InvalidConnect`, `TimedOut`, `Exiting`.
+
+### Avatars
+
+With `avatars: Some(AvatarSize::Small | Medium | Large)` (32, 64 or 184 pixels), the kit writes
+`FriendAvatar { steam_id, width, height, rgba }` once for every friend and the local user, and
+again when Steam reports a new avatar (at most 16 per frame; an avatar Steam has none of, for
+example a large one it is still loading, is read again on the next full re-read). An image whose
+byte count is not `width * height * 4` is skipped. The bytes are RGBA, row by row; for a Bevy
+`Image`:
+
+```rust,ignore
+let image = Image::new(
+    Extent3d { width: a.width, height: a.height, depth_or_array_layers: 1 },
+    TextureDimension::D2,
+    a.rgba.clone(),
+    TextureFormat::Rgba8UnormSrgb,
+    RenderAssetUsages::RENDER_WORLD,
+);
+```
+
+| `FriendsSettings` field | default | meaning |
+|---|---|---|
+| `refresh_interval` | 5 s | re-read the whole list this often (needs Bevy's `TimePlugin`; without it only callbacks and `RefreshFriends` re-read; `Duration::ZERO` = every frame) |
+| `read_connect` | `true` | read the rich-presence `connect` of friends playing this game |
+| `launch_connect_prefix` | `None` | on the first frame, look for this token in the launch arguments and report a `ConnectRequested` with `LaunchArgs` |
+| `avatars` | `None` | read avatars of this size |
+| `user_info_timeout` | 10 s | a `RequestUserInfo` Steam has not answered after this long gets a `FriendsError` with `TimedOut` (needs Bevy's `TimePlugin`) |
+
+Testing: `add_friend(id, state)`, `remove_friend(id)`, `set_friend_state(id, state)`,
+`set_friend_game(id, Some((app_id, lobby)))`, `set_friend_rich_presence(id, key, value)` (no
+event, like Steam: the next refresh finds it), `set_friend_nickname(id, nickname)`,
+`set_local_persona(name, state)`, `set_friend_avatar(id, width, height, rgba)`,
+`set_friend_avatar_loading(id, loading)`, `set_user_info_loaded(id)`, `silence_next_user_info()`,
+`refuse_next_game_invite()`, `set_app_id(id)` and `push_rich_presence_join(from, connect)` (what
+Steam delivers for a join, for every compiled feature). Names come from `set_friend_name`. The
+leaderboards fake's `set_friends` (who counts for `ScoreRange::Friends`) is separate. With real
+Steam: `cargo run --example friends_480 --features friends,steam` prints counts only.
+
+## The Steam overlay
+
+Feature `overlay`: open the overlay and know when it is open. Everything below uses `use
+bevy::prelude::*; use bevy_steam_kit::*;` and the `overlay` feature.
+
+```rust
+use bevy::prelude::*;
+use bevy_steam_kit::*;
+
+fn buy_button(mut open: MessageWriter<OpenOverlay>) {
+    open.write(OpenOverlay::store(480)); // your app id, or a DLC's
+}
+
+fn invite_button(mut open: MessageWriter<OpenOverlay>) {
+    open.write(OpenOverlay::invite_dialog_connect("+connect 203.0.113.7:7777"));
+}
+
+fn pause(overlay: Res<SteamOverlay>, mut toggled: MessageReader<OverlayToggled>) {
+    for t in toggled.read() {
+        info!("overlay open: {} (now {})", t.active, overlay.is_active());
+    }
+}
+```
+
+| `OpenOverlay` | opens |
+|---|---|
+| `Dialog { dialog }` (`dialog(name)`) | a Steam dialog: `"friends"`, `"community"`, `"players"`, `"settings"`, `"officialgamegroup"`, `"stats"`, `"achievements"` |
+| `User { dialog, steam_id }` (`user(name, id)`) | a dialog about a user: `"steamid"` (profile), `"chat"`, `"jointrade"`, `"stats"`, `"achievements"`, `"friendadd"`, `"friendremove"`, `"friendrequestaccept"`, `"friendrequestignore"` |
+| `WebPage { url }` (`web_page(url)`) | a web page in the overlay's browser |
+| `Store { app_id, flag }` (`store(app_id)`) | an app's store page; `StoreFlag::{None, AddToCart, AddToCartAndShow}` |
+| `InviteDialog { lobby }` (`invite_dialog(lobby)`) | the invite dialog for a Steam lobby |
+| `InviteDialogConnect { connect }` (`invite_dialog_connect(s)`) | the invite dialog sending a connect string (arrives as `ConnectRequested` with the `friends` feature) |
+
+- An unusable request (an empty name, URL or connect string, a NUL byte, a connect string over
+  255 bytes, a SteamID64 that is not a user's, lobby id 0) is an `OverlayError` with
+  `InvalidRequest` and never reaches `steamworks` (which would panic on the NUL). Steam gives no
+  answer for an accepted request; a call the backend refuses is an `OverlayError` with `Refused`.
+- `OverlayToggled { active }` is written in `First` whenever the overlay opens or closes;
+  `SteamOverlay` has `is_active()`, `is_enabled()` (Steam reports the overlay as available to this
+  process, shortly after start) and `toggles()`.
+- The overlay needs Steam's "Enable the Steam Overlay while in-game" setting on and a game window
+  Steam draws into; `is_enabled()` tells whether Steam made it available.
+- Without a backend the overlay counts as closed: removing the backend while it is open writes one
+  `OverlayToggled { active: false }`.
+
+Testing: `set_overlay_enabled(bool)`, `toggle_overlay(active)`, `refuse_next_overlay()`; every request the kit passes on is
+recorded as `FakeCall::ActivateOverlay(request)`. With real Steam: `cargo run --example
+overlay_480 --features overlay,steam`.
 
 ## How it works
 
@@ -1139,13 +1636,84 @@ queue that the pump drains before returning. The core keeps the frame's events i
 **The features.** Right after the pump, in `SteamKitSystems::Callbacks` (still before the buffer
 swap, so everything they write is readable in the same frame's `PreUpdate` / `Update`), each
 compiled feature reads its own events from the buffer and turns them into state changes and fact
-messages. No feature ever pumps Steam. No `CallbackHandle` is registered by the kit, so none can
-be dropped by accident.
+messages. No feature ever pumps Steam. The only callbacks the kit registers are its three
+guards (below), registered for the rest of the process.
+
+<a id="when-steam-quits"></a>**When Steam quits.** When the Steam client quits it sends
+`SteamServersDisconnected` with the result "OK", and from then on the kit makes no call into
+Steam's library. `steamworks` 0.12.2 panics on that "OK" while converting the callback, so
+`RealSteamBackend::new` registers its own callback for `SteamServersDisconnected` and
+`SteamServerConnectFailure`; `steamworks` runs it on the raw callback data before its own
+conversion. When it sees "OK" it turns it into "no connection" (so the conversion never panics)
+and marks Steam as shutting down. Only the result "OK" does that; any other result code changes
+nothing. Call results, every other callback and your own registrations are untouched. From that
+moment:
+
+- the kit makes no Steam call of any kind (only the pump that delivered the callback finishes
+  `steamworks`' dispatch: the callbacks and call results already handed to the game, including
+  the game's own registered closures): it never pumps again, no feature reads or writes Steam
+  (also not on `AppExit`), and the backend's `local_id()` and `launch_command_line()` answer from
+  values read at its creation (`friend_name()` returns `""`);
+- the other events of that pump are dropped, and the kit writes `SteamLost { reason:
+  SteamLostReason::SteamExited }` once, in the same frame (in `First`, readable in that frame's
+  `Update`). `SteamBackendRes` stays (a system taking `Res<SteamBackendRes>` keeps working), with
+  an inert backend that supports no feature;
+- every request is answered with its feature's `NoBackend` error, including the ones still
+  waiting for Steam (tickets, leaderboard calls, user info); the friends list is emptied (one
+  `FriendsChanged` with everyone `removed`); an open overlay is reported closed; the lobby feature
+  clears `SteamLobby` (the lobby this process was in is reported with one `LobbyLeft`) and answers
+  a create or join still in flight with one `LobbyError` with `NoBackend`;
+- the kit does not shut Steam's library down and keeps its own `steamworks::Client` clone alive
+  until the process ends (dropping the last clone calls into Steam);
+- the game keeps running and decides what to do. **After `SteamLost`, make no further calls
+  through your own `steamworks::Client` either.** The kit does not reconnect when Steam is started
+  again, also not through a `RealSteamBackend` created later in the same process; the game's next
+  start uses the new Steam client.
+
+**When the Steam client process ends** without that callback (killed or crashed), the real
+backend sees it through the operating system, never through Steam: before every pump and before
+every feature's access to Steam it checks whether the Steam client process still runs (a check
+that never blocks). When the process is gone, the same happens as above, with
+`SteamLostReason::SteamProcessEnded`. How the process is found:
+
+- **Windows:** the pid Steam writes to `HKCU\Software\Valve\Steam\ActiveProcess\pid`; the
+  process must be `steam.exe`. The kit keeps a handle to that process, so a reused pid is never
+  mistaken for Steam.
+- **Linux:** the pid in `~/.steam/steam.pid` (or `~/.steam/steam/steam.pid`); the process must be
+  `steam`, and its start time must stay the same (a reused pid counts as gone).
+- Where no such pid file names the Steam client (macOS, a Flatpak or Snap Steam; logged once at
+  start), the kit uses Steam's own process check instead, at most once a second, before the pump.
+
+A Steam client that is restarted while the game runs is a new process: the kit counts Steam as
+gone.
+
+**Connect strings that are not UTF-8.** `steamworks` 0.12.2 converts the connect string of a
+"Join Game" or an accepted invite (`GameRichPresenceJoinRequested`) with `expect`, so a string
+that is not UTF-8 (or has no terminating NUL) would panic in the pump, and any friend can send
+one. The kit's third guard fixes the raw string in place before that conversion: every byte that
+is not part of valid UTF-8 becomes `?` (and a string without NUL is cut to 255 bytes). The join
+then arrives with that string (`ConnectRequested`; the lobby feature ignores it unless it still
+parses as `+connect_lobby <id>`).
+
+**Panics inside the pump.** The guards prevent `steamworks`' panics before they happen, so they
+work in every build, `panic = "abort"` included. Any other panic inside the pump is caught by the
+kit in a build that unwinds on panic (Rust's default): that frame's Steam events are dropped and
+the same happens as above, with `SteamLostReason::PumpPanicked`; no `RealSteamBackend` of that
+process pumps again. The kit then makes no further Steam call, so the lobby feature's `LobbyLeft`
+does not leave the Steam lobby or clear the rich presence at Steam. With `panic = "abort"` such a
+panic ends the process.
 
 **Lobby requests** are handled in `Update`, in a fixed order: leave, join, create, invite, rich
 presence, clear. That makes "leave + create" or "leave + join" in one frame behave as expected.
 **Stats requests** are one message type, applied in the order written. **Leaderboard requests**
 are answered exactly once each, by request id.
+
+**Auth, friends and the overlay over Steam.** Their callbacks (`GetTicketForWebApiResponse`,
+`PersonaStateChange`, `GameRichPresenceJoinRequested`, `GameOverlayActivated`) are mapped inside
+the same pump. A ticket answer is matched to its request by Steam's ticket handle; a ticket the
+kit did not request is ignored. Persona states and friends' rich presence are read through
+`steamworks`' raw bindings (the `friends` feature enables `raw-bindings`), because the wrapped
+persona-state call panics on states it does not know and friends' rich presence is not wrapped.
 
 **Stats and leaderboards over Steam.** Stats callbacks (`UserStatsReceived`, `UserStatsStored`,
 `UserAchievementStored`, for the running app only) are mapped inside the same pump; leaderboard
@@ -1163,7 +1731,8 @@ Steam's launch command line are searched for `<prefix> <id>` (also `<prefix>=<id
 a match is one `JoinRequested` with `from: 0` and `JoinSource::LaunchArgs`.
 
 **Guards.** `steamworks` 0.12.2 panics on a few inputs, and a panic inside a Bevy system ends the
-game. The real backend refuses keys, values and connect strings with an interior NUL byte
+game. The real backend refuses keys, values, identities, dialog names, URLs and connect strings
+with an interior NUL byte
 (`CString::new(..).unwrap()` inside steamworks) and reports them as failures; `max_members` is
 clamped to 250 (steamworks asserts); a join request with lobby id 0 or an unparsable connect
 string is ignored with a warning; a non-user `from` id becomes `0`. The lobby chat-update callback
@@ -1180,30 +1749,33 @@ prefix (visible with Bevy's `LogPlugin`), e.g. `>>> STEAM: lobby 109775241000000
 
 The full documentation is generated with `cargo doc --open --all-features`. Everything is
 available at the crate root (`use bevy_steam_kit::*;`); the feature items also live in the
-`bevy_steam_kit::lobby`, `bevy_steam_kit::stats` and `bevy_steam_kit::leaderboards` modules.
+`bevy_steam_kit::lobby`, `bevy_steam_kit::stats`, `bevy_steam_kit::leaderboards`,
+`bevy_steam_kit::auth`, `bevy_steam_kit::friends` and `bevy_steam_kit::overlay` modules.
 
 ### Core (always compiled)
 
 | item | kind | what / example |
 |---|---|---|
-| `SteamKitPlugin` | plugin | `app.add_plugins(SteamKitPlugin::default())`; feature settings through builders: `.with_lobby(LobbySettings { .. })` (feature `lobby`), `.with_stats(StatsSettings { .. })` (feature `stats`), `.with_leaderboards(LeaderboardSettings { .. })` (feature `leaderboards`) |
+| `SteamKitPlugin` | plugin | `app.add_plugins(SteamKitPlugin::default())`; feature settings through builders: `.with_lobby(LobbySettings { .. })` (feature `lobby`), `.with_stats(StatsSettings { .. })` (feature `stats`), `.with_leaderboards(LeaderboardSettings { .. })` (feature `leaderboards`), `.with_auth(AuthSettings { .. })` (feature `auth`), `.with_friends(FriendsSettings { .. })` (feature `friends`) |
 | `SteamKitSystems::{Pump, Callbacks, Requests}` (`#[non_exhaustive]`) | system sets | `my_system.before(SteamKitSystems::Requests)` ([order](#11-system-order)) |
-| `SteamBackendRes(pub Box<dyn SteamBackend>)` | resource | the active backend; its presence makes the kit live. `SteamBackendRes(Box::new(FakeSteamBackend::new()))` |
-| `SteamBackend` trait | trait | `local_id() -> u64`, `friend_name(id) -> String` ("" when unknown), `launch_command_line() -> String`, `pump() -> Vec<BackendEvent>` (the kit calls it; never call it yourself), one accessor per feature, each defaulting to `None`: `lobby() -> Option<&dyn LobbyBackend>` (feature `lobby`), `stats() -> Option<&dyn StatsBackend>` (feature `stats`), `leaderboards() -> Option<&dyn LeaderboardBackend>` (feature `leaderboards`). `Send + Sync + 'static`; must never panic |
-| `BackendEvent` (`#[non_exhaustive]`) | enum | what a backend's `pump` returns. With `lobby`: `LobbyCreated { lobby }`, `LobbyCreateFailed { message }`, `LobbyEntered { lobby }`, `LobbyJoinFailed { lobby }`, `LobbyJoinRequested { lobby, from }`, `RichPresenceJoinRequested { from, connect }`. With `stats`: `StatsReceived { user, ok }`, `StatsStored`, `StatsStoreRejected`, `StatsStoreFailed { message }`, `AchievementStored { name, current, max }`. With `leaderboards`: `LeaderboardFound { op, board }`, `LeaderboardNotFound { op }`, `LeaderboardScoreUploaded { op, score, changed, rank_new, rank_previous }`, `LeaderboardUploadRejected { op }`, `LeaderboardScoresDownloaded { op, entries }`, `LeaderboardIoFailure { op }` |
-| `RealSteamBackend` (feature `steam`) | backend | `RealSteamBackend::new(client: steamworks::Client)`: the backend over steamworks 0.12.2 (supports every compiled feature) |
-| `FakeSteamBackend` | backend | in-memory Steam for tests: `new()`, `calls()`, `pump_count()`, `set_local_id(id)`, `push_event(BackendEvent)`, `set_friend_name(id, name)`, `set_launch_command_line(text)`; with `lobby` also `set_auto_complete_create(bool)`, `complete_create(lobby)`, `fail_create(msg)`, `set_join_succeeds(bool)`, `set_member_count(lobby, n)`, `put_lobby_data(lobby, key, value)`, `rich_presence(key)`; with `stats` also `define_stat(name, StatValue)`, `define_achievement(name, unlocked)`, `set_stats_ready(bool)`, `fail_next_store(FakeStoreFailure)`, `stat(name)`, `achieved(name)`; with `leaderboards` also `add_leaderboard(name, sort, display)`, `add_leaderboard_entry(board, steam_id, score, details)`, `set_friends(ids)`, `fail_next_leaderboard_call(FakeLeaderboardFailure)`, `leaderboard_entries(board)` |
-| `FakeCall` (`#[non_exhaustive]`) | enum | one recorded call. With `lobby`: `CreateLobby { kind, max_members }`, `JoinLobby(lobby)`, `LeaveLobby(lobby)`, `SetLobbyData { lobby, key, value }`, `SetLobbyJoinable { lobby, joinable }`, `SetRichPresence { key, value }`, `ClearRichPresence`, `InviteToGame { friend, connect }`. With `stats`: `SetStat { name, value }`, `UnlockAchievement(name)`, `ClearAchievement(name)`, `IndicateAchievementProgress { name, current, max }`, `StoreStats`, `ResetAllStats { achievements_too }`. With `leaderboards`: `FindLeaderboard { name, create }`, `UploadScore { board, method, score, details }`, `DownloadScores { board, range }` |
+| `SteamBackendRes(pub Box<dyn SteamBackend>)` | resource | the active backend; its presence makes the kit live. `SteamBackendRes(Box::new(FakeSteamBackend::new()))`. After `SteamLost` it holds an inert backend ([when Steam quits](#when-steam-quits)) |
+| `SteamLost { reason: SteamLostReason }` (`#[non_exhaustive]`) | fact message | Steam is gone for this process; written once, in `First` ([when Steam quits](#when-steam-quits)) |
+| `SteamLostReason` (`#[non_exhaustive]`) | enum | `SteamExited` (the Steam client quit and said so), `SteamProcessEnded` (the client process ended without saying so: killed or crashed), `PumpPanicked` (a panic inside the pump was caught; only in a build that unwinds) |
+| `SteamBackend` trait | trait | `local_id() -> u64`, `friend_name(id) -> String` (for a user Steam knows nothing about, real Steam returns `"[unknown]"` and the fake backend `""`), `launch_command_line() -> String`, `pump() -> Vec<BackendEvent>` (the kit calls it; never call it yourself), one accessor per feature, each defaulting to `None`: `lobby() -> Option<&dyn LobbyBackend>` (feature `lobby`), `stats() -> Option<&dyn StatsBackend>` (feature `stats`), `leaderboards() -> Option<&dyn LeaderboardBackend>` (feature `leaderboards`), `auth() -> Option<&dyn AuthBackend>` (feature `auth`), `friends() -> Option<&dyn FriendsBackend>` (feature `friends`), `overlay() -> Option<&dyn OverlayBackend>` (feature `overlay`). `Send + Sync + 'static`; must never panic |
+| `BackendEvent` (`#[non_exhaustive]`) | enum | what a backend's `pump` returns. Always: `SteamLost { reason }` (the kit takes it out and writes `SteamLost`). With `lobby`: `LobbyCreated { lobby }`, `LobbyCreateFailed { message }`, `LobbyEntered { lobby }`, `LobbyJoinFailed { lobby }`, `LobbyJoinRequested { lobby, from }`, `RichPresenceJoinRequested { from, connect }`. With `stats`: `StatsReceived { user, ok }`, `StatsStored`, `StatsStoreRejected`, `StatsStoreFailed { message }`, `AchievementStored { name, current, max }`. With `leaderboards`: `LeaderboardFound { op, board }`, `LeaderboardNotFound { op }`, `LeaderboardScoreUploaded { op, score, changed, rank_new, rank_previous }`, `LeaderboardUploadRejected { op }`, `LeaderboardScoresDownloaded { op, entries }`, `LeaderboardIoFailure { op }`. With `auth`: `WebApiTicket { op, result: Result<WebApiTicket, String> }`. With `friends`: `PersonaChanged { steam_id, flags }` (Steam's raw `EPersonaChange` bits), `ConnectRequested { from, connect }`. With `overlay`: `OverlayActivated { active }` |
+| `RealSteamBackend` (feature `steam`) | backend | `RealSteamBackend::new(client: steamworks::Client)`: the backend over steamworks 0.12.2 (supports every compiled feature); registers the three callbacks of its guards (Steam quitting, non-UTF-8 connect strings) for the rest of the process; after `SteamLost` a backend created later in the same process stays inert |
+| `FakeSteamBackend` | backend | in-memory Steam for tests: `new()`, `calls()`, `pump_count()`, `set_local_id(id)`, `push_event(BackendEvent)`, `set_friend_name(id, name)`, `set_launch_command_line(text)`, `set_app_id(id)` (default 480), `simulate_steam_shutdown()` (what Steam's shutdown callback does: no feature from then on, `SteamLost` on the next pump), `simulate_steam_process_ended()` (the same for a killed client), `simulate_steam_exit()` (the next pump reports `SteamLost`), `panic_in_next_pump()`; with `lobby` or `friends` also `push_rich_presence_join(from, connect)`; with `auth` also `FakeSteamBackend::fake_web_api_ticket(op)`, `fail_next_auth_ticket(FakeAuthFailure)`, `live_auth_tickets()`; with `friends` also `add_friend(id, state)`, `remove_friend(id)`, `set_friend_state(id, state)`, `set_friend_game(id, game)`, `set_friend_rich_presence(id, key, value)`, `set_friend_nickname(id, nickname)`, `set_local_persona(name, state)`, `set_friend_avatar(id, w, h, rgba)`, `set_friend_avatar_loading(id, loading)`, `set_user_info_loaded(id)`, `silence_next_user_info()`, `refuse_next_game_invite()`; with `overlay` also `set_overlay_enabled(bool)`, `toggle_overlay(active)`, `refuse_next_overlay()`; with `lobby` also `set_auto_complete_create(bool)`, `complete_create(lobby)`, `fail_create(msg)`, `set_join_succeeds(bool)`, `set_member_count(lobby, n)`, `put_lobby_data(lobby, key, value)`, `rich_presence(key)`; with `stats` also `define_stat(name, StatValue)`, `define_achievement(name, unlocked)`, `set_stats_ready(bool)`, `fail_next_store(FakeStoreFailure)`, `stat(name)`, `achieved(name)`; with `leaderboards` also `add_leaderboard(name, sort, display)`, `add_leaderboard_entry(board, steam_id, score, details)`, `set_friends(ids)`, `fail_next_leaderboard_call(FakeLeaderboardFailure)`, `leaderboard_entries(board)` |
+| `FakeCall` (`#[non_exhaustive]`) | enum | one recorded call. With `lobby` or `friends`: `InviteToGame { friend, connect }`. With `lobby`: `CreateLobby { kind, max_members }`, `JoinLobby(lobby)`, `LeaveLobby(lobby)`, `SetLobbyData { lobby, key, value }`, `SetLobbyJoinable { lobby, joinable }`, `SetRichPresence { key, value }`, `ClearRichPresence`. With `auth`: `RequestWebApiTicket { identity }`, `CancelAuthTicket { op }`. With `friends`: `RequestUserInformation { id, name_only }`. With `overlay`: `ActivateOverlay(OpenOverlay)`. With `stats`: `SetStat { name, value }`, `UnlockAchievement(name)`, `ClearAchievement(name)`, `IndicateAchievementProgress { name, current, max }`, `StoreStats`, `ResetAllStats { achievements_too }`. With `leaderboards`: `FindLeaderboard { name, create }`, `UploadScore { board, method, score, details }`, `DownloadScores { board, range }` |
 | `is_individual_steam_id64(id) -> bool` | function | a user account in the public universe: `is_individual_steam_id64(76561197960265730) == true`, `is_individual_steam_id64(12345) == false` |
 
 Writing your own backend: implement `SteamBackend` (and, per feature, `LobbyBackend`,
-`StatsBackend` or `LeaderboardBackend`, returning `Some(self)` from the matching accessor). A
-backend that leaves an accessor at its default keeps compiling when that feature is enabled
-elsewhere in the build; the kit then treats that feature as unavailable (`NoBackend`).
-**Stability promise:** the methods of `SteamBackend`, `LobbyBackend`, `StatsBackend` and
-`LeaderboardBackend` that exist today stay required as they are, and any method added in a later
-version (including the accessor of a new feature) comes with a default implementation, so your
-implementation keeps compiling.
+`StatsBackend`, `LeaderboardBackend`, `AuthBackend`, `FriendsBackend` or `OverlayBackend`,
+returning `Some(self)` from the matching accessor). A backend that leaves an accessor at its
+default keeps compiling when that feature is enabled elsewhere in the build; the kit then treats
+that feature as unavailable (`NoBackend`). **Stability promise:** the methods of `SteamBackend`
+and of the feature traits stay required as they are, and every method added to them (including
+the accessor of a new feature) comes with a default implementation, so your implementation keeps
+compiling.
 
 ### Lobby: settings, state, backend (feature `lobby`)
 
@@ -1291,20 +1863,63 @@ in `SteamKitSystems::Requests` (`Last`).
 | `FakeLeaderboardFailure` (`#[non_exhaustive]`) | enum | `IoFailure`, `Rejected`, `NoAnswer` |
 | `is_valid_leaderboard_name(name)`, `MAX_LEADERBOARD_NAME_BYTES` = 127, `MAX_LEADERBOARD_DETAILS` = 64 | function, consts | the checks applied before every Steam call |
 
+### Auth (feature `auth`)
+
+| item | kind | what / example |
+|---|---|---|
+| `AuthSettings { timeout, cancel_on_exit }` | settings + resource (read) | `SteamKitPlugin::default().with_auth(AuthSettings { .. })` ([fields](#web-api-tickets-auth)) |
+| `SteamAuth` | resource | `next_id() -> AuthRequestId` (`&mut self`), `is_pending(id)`, `is_live(id)`, `live_tickets()` |
+| `AuthRequest` (`#[non_exhaustive]`) | request message (one ordered stream) | `WebApiTicket { id, identity }`, `Cancel { id }`; helpers `web_api_ticket(id, identity)`, `cancel(id)`; `id()` |
+| `AuthRequestId(pub u64)`, `AuthRequestId::FIRST_MANUAL` (`2^63`) | id | from `next_id()` or picked by hand; every answer carries it |
+| `WebApiTicketReady { id, identity, ticket }` (`#[non_exhaustive]`) | answer message | the ticket arrived |
+| `AuthError { id, kind: AuthErrorKind, message }` (`#[non_exhaustive]`) | answer message | a request failed |
+| `AuthErrorKind` (`#[non_exhaustive]`) | enum | `NoBackend`, `InvalidIdentity`, `DuplicateId`, `Failed`, `TimedOut`, `Cancelled`, `Exiting` |
+| `WebApiTicket` | data | `new(bytes)`, `bytes()`, `to_hex()`, `len()`, `is_empty()`; `Clone`, `PartialEq`; `Debug` shows the length only; zeroed on drop |
+| `AuthBackend` trait | trait | `request_web_api_ticket(op, identity) -> bool`, `cancel_auth_ticket(op)`. Reached with `backend.0.auth()`; same stability promise as the other backend traits |
+| `FakeAuthFailure` (`#[non_exhaustive]`) | enum | `Refused`, `Failed`, `NoAnswer` |
+
+### Friends (feature `friends`)
+
+| item | kind | what / example |
+|---|---|---|
+| `FriendsSettings { refresh_interval, read_connect, launch_connect_prefix, avatars, user_info_timeout }` | settings + resource (read) | `SteamKitPlugin::default().with_friends(FriendsSettings { .. })` ([fields](#avatars)) |
+| `SteamFriends` | resource (read) | `is_loaded()`, `list()`, `get(id)`, `online()`, `playing_this_game()`, `me()`, `app_id()`, `generation()` |
+| `FriendInfo { steam_id, name, nickname, state, game, connect }` (`#[non_exhaustive]`) | data | `display_name()`, `is_online()`, `plays(app_id)` |
+| `FriendGame { app_id, lobby, server }` (`#[non_exhaustive]`) | data | `FriendGame::new(app_id, lobby, server)` for custom backends |
+| `PersonaState` (`#[non_exhaustive]`) | enum | `Offline`, `Online`, `Busy`, `Away`, `Snooze`, `LookingToTrade`, `LookingToPlay`, `Invisible`, `Unknown`; `from_raw(i32)`, `is_online()` |
+| `AvatarSize` (`#[non_exhaustive]`) | enum | `Small` (32), `Medium` (64), `Large` (184); `pixels()` |
+| `RefreshFriends`, `InviteToGame { steam_id, connect }`, `RequestUserInfo { steam_id, name_only }` | request messages | re-read now; invite with a connect string; load a user's persona |
+| `FriendsChanged { added, removed, changed }`, `GameInviteSent { steam_id, connect, ok }`, `ConnectRequested { connect, from, source }`, `UserInfoReady { steam_id, name }`, `FriendAvatar { steam_id, width, height, rgba }` (all `#[non_exhaustive]`) | fact messages | [when](#invites-and-joins) |
+| `ConnectSource` (`#[non_exhaustive]`) | enum | `RichPresence`, `LaunchArgs` |
+| `FriendsError { request: FriendsRequestKind, steam_id, kind: FriendsErrorKind, message }`, `FriendsRequestKind`, `FriendsErrorKind` (all `#[non_exhaustive]`) | fact message, enums | `Invite`, `UserInfo`; `NoBackend`, `InvalidSteamId`, `InvalidConnect`, `TimedOut`, `Exiting` |
+| `FriendsBackend` trait | trait | `current_app_id()`, `friend_ids()`, `persona_name(id)`, `persona_nickname(id)`, `persona_state(id)`, `game_played(id)`, `friend_rich_presence(id, key)`, `local_persona()`, `invite_user_to_game(id, connect) -> bool`, `request_user_information(id, name_only) -> bool`, `friend_avatar(id, size)`. Reached with `backend.0.friends()`; same stability promise |
+| `MAX_CONNECT_BYTES` | const `usize` = 255 | Steam's limit on a connect string |
+
+### Overlay (feature `overlay`)
+
+| item | kind | what / example |
+|---|---|---|
+| `SteamOverlay` | resource (read) | `is_active()`, `is_enabled()`, `toggles()` |
+| `OpenOverlay` (`#[non_exhaustive]`) | request message | `Dialog { dialog }`, `User { dialog, steam_id }`, `WebPage { url }`, `Store { app_id, flag }`, `InviteDialog { lobby }`, `InviteDialogConnect { connect }`; helpers `dialog`, `user`, `web_page`, `store`, `invite_dialog`, `invite_dialog_connect` |
+| `StoreFlag` (`#[non_exhaustive]`) | enum | `None` (default), `AddToCart`, `AddToCartAndShow` |
+| `OverlayToggled { active }` (`#[non_exhaustive]`) | fact message | the overlay opened or closed |
+| `OverlayError { request, kind: OverlayErrorKind, message }`, `OverlayErrorKind` (both `#[non_exhaustive]`) | fact message, enum | `NoBackend`, `InvalidRequest`, `Refused` |
+| `OverlayBackend` trait | trait | `overlay_enabled() -> bool`, `open_overlay(&OpenOverlay) -> bool`. Reached with `backend.0.overlay()`; same stability promise |
+
 ## Compatibility
 
-| bevy_steam_kit | Bevy | steamworks | tested transport (optional, your dependency) | Rust |
+| bevy_steam_kit | Bevy | steamworks | transport recipe (optional, your dependency) | Rust |
 |---|---|---|---|---|
+| 0.2 | 0.19.0 | 0.12.2 | bevy_replicon 0.44 / bevy_replicon_renet 0.20 / renet_steam 3.0.0 | 1.95+ |
 | 0.1 | 0.19.0 | 0.12.2 | bevy_replicon 0.44 / bevy_replicon_renet 0.20 / renet_steam 3.0.0 | 1.95+ |
 
 **Why steamworks 0.12.2 and not a newer one?** The widely used Steam transport for renet
 (`renet_steam` 3.0.0, used by `bevy_replicon_renet` 0.20) requires `steamworks` ^0.12.2. Two
 versions of `steamworks` link the same native library and Cargo refuses to build that, so a game
-using that transport must stay on 0.12.2, and so does this crate. The pin moves when
-`renet_steam` moves (as a minor version of this crate).
+using that transport must stay on 0.12.2, and so does this crate. A change of this pin is a minor
+version of this crate.
 
-Platforms: whatever `steamworks` 0.12.2 supports (Windows, Linux and macOS, 64-bit). The web is
-not supported (there is no Steam client there).
+Platforms: Windows, Linux and macOS, 64-bit (the platforms of `steamworks` 0.12.2).
 
 ## Examples
 
@@ -1315,8 +1930,14 @@ not supported (there is no Steam client there).
 | `cargo run --example join_lobby --features lobby,steam [-- <lobby id>]` | join a lobby by id, or on "Join Game" / an invite; print the host's lobby data | Steam running, `steam_appid.txt` |
 | `cargo run --example leaderboard_480 --features leaderboards,steam [-- --upload <score> \| --board <name> \| --show-ids]` | find Spacewar's "Feet Traveled" board, download the top 10, your friends and your neighbourhood; optionally upload a score ([details](#testing-leaderboards)) | Steam running |
 | `cargo run --example stats_480 --features stats,steam [-- --play \| --round-trip \| --progress \| --reset-stats \| --reset]` | read Spacewar's stats and achievements; change, store, undo ([details](#testing-stats-with-real-steam-app-480)) | Steam running |
+| `cargo run --example auth_480 --features auth,steam` | request a Web API ticket, print its length and timing (never the ticket), cancel; request and cancel before the answer | Steam running |
+| `cargo run --example friends_480 --features friends,steam [-- --avatars \| --avatars-large \| --invite <SteamID64> \| --user-info <SteamID64> \| +bevy_steam_kit_test 1]` | friends counts by state, players of the app, rich-presence connects, changes, avatars and the slowest frame of the kit's work for 60 s (counts only, no names or ids); optionally an invite with a custom connect string, a user-info request, or a simulated cold launch (put it last) | Steam running (two accounts for the invite) |
+| `cargo run --example overlay_480 --features overlay,steam [-- --friends \| --invite-dialog \| --invite-dialog-lobby <lobby id>]` | whether Steam reports the overlay, one overlay request after 3 s, every open / closed event for 60 s | Steam running |
+| `cargo run --example steam_exit_480 --features steam,auth,friends` | quit Steam while it runs: it keeps running, prints `SteamLost`, sends two requests and prints their `NoBackend` answers, and exits with code 0 ten seconds later | Steam running, then quit |
 
 The Steam examples read the app id from the `STEAM_APP_ID` environment variable (default 480).
+An example exits with a non-zero code when Steam does not start, and the ones that end by
+themselves also when a request was answered with an error.
 
 ## Testing with real Steam
 
@@ -1328,7 +1949,10 @@ The Steam examples read the app id from the `STEAM_APP_ID` environment variable 
 3. **App id 480 is Valve's "Spacewar"** test app: friends see "Spacewar" as the game, invites say
    "Spacewar", and the "Join Game" menu entry is there because rich presence `connect` is set.
 4. **With 480, the joining friend must already have the game running.** A "Join Game" or an
-   accepted invite then arrives as `JoinRequested` (`LobbyInvite` or `RichPresence`). If the game
+   accepted invite then arrives as `JoinRequested`. "Join Game" on a friend who hosts a kit lobby
+   arrives with `source: LobbyInvite` (Steam uses the lobby, not the rich-presence `connect`; no
+   `ConnectRequested` is written for it); an accepted invite with a connect string arrives with
+   `RichPresence` (and as `ConnectRequested` with the `friends` feature). If the game
    is not running, Steam tries to start Spacewar itself instead of your build. Cold launches
    (`JoinSource::LaunchArgs`) can only be tested with your own app id and an installed build.
 5. What to look for, in order: the host logs `>>> STEAM: lobby <id> open`; the friend sees you as
@@ -1337,53 +1961,71 @@ The Steam examples read the app id from the `STEAM_APP_ID` environment variable 
    with `ok = true` for an invite (the friend gets a Steam notification); quitting the host
    removes "Join Game" within a few seconds.
 
-The crate's own tests never talk to Steam. CI runs clippy for twelve feature sets (none, `lobby`,
-`stats`, `leaderboards`, `lobby,stats`, `lobby,leaderboards`, `stats,leaderboards`, `steam`,
-`lobby,steam`, `stats,steam`, `leaderboards,steam`, all); on Linux, Windows and macOS it runs the
-tests without features and with every non-`steam` set, and builds the tests and examples with
-`steam` and with all features; the tests with `steam` (`steam`, `stats,steam`,
-`leaderboards,steam`, all features, including the README examples) run on Windows only.
+For `friends`: an invite with a custom connect string (`InviteToGame`) accepted on the second
+machine arrives there as `ConnectRequested` with `RichPresence`; a cold launch from an invite
+starts Spacewar for 480, so the launch path (`launch_connect_prefix`) is checked by passing the
+string as arguments by hand.
 
-## Limitations and FAQ
+Quitting Steam while a game runs: `steam_exit_480` keeps running and prints `SteamLost` and the
+`NoBackend` answers ([when Steam quits](#when-steam-quits)).
+
+The crate's own tests never talk to Steam: they drive the kit through `FakeSteamBackend`. CI
+checks 23 feature sets: none, `steam`, each feature alone (`lobby`, `stats`, `leaderboards`,
+`auth`, `friends`, `overlay`), each feature with `steam`, the pairs `lobby,stats`,
+`lobby,leaderboards`, `stats,leaderboards`, `lobby,friends`, `lobby,auth`, `stats,friends`,
+`friends,leaderboards`, `friends,overlay`, and all features.
+
+## FAQ
 
 **Does it work with other Steam plugins?** Yes, as long as only the kit pumps Steam callbacks
 ([the one-pump rule](#the-one-pump-rule)) and everything shares the same `steamworks` version.
 
-**Host migration?** No. When the lobby owner leaves, Steam hands lobby ownership to another
-member, but your game session is hosted by one process; what happens then is your game's
-decision.
+**What happens when the host leaves?** Steam hands lobby ownership to another member. Your game
+session is hosted by your game's own process, so what happens then is your game's decision.
 
-**Is "invite sent" a delivery receipt?** No. `steamworks` 0.12.2 returns nothing from the invite
-call; `InviteSent { ok: true }` means the call was made with valid input. The friend may be
-offline, may ignore it, or may not own the game.
+**Is "invite sent" a delivery receipt?** No, for neither feature. The lobby's
+`InviteSent { ok: true }` means the call was made with valid input (`steamworks` 0.12.2 returns
+nothing from its invite call). The friends feature's `GameInviteSent { ok }` is Steam's own
+result of the call (it calls Steam's flat API directly); `true` still only means Steam accepted
+the call: Steam answers `true` also for an invisible friend and for an id that is not a friend.
+In both cases the friend can be offline, ignore the invite, or not own the game.
 
-**Member join/leave notifications?** Not reported: the lobby chat-update callback is avoided in
-this `steamworks` version. Poll `lobby_member_count`, or track connections in your transport.
+**How do I follow who is in the lobby?** `lobby_member_count(lobby)` on the lobby backend gives
+the count; your transport tracks the connections.
 
-**Lobby search / browser?** Not included. `LobbyKind::Public` lobbies can be created; listing
-them is not wrapped yet.
+**What happens when Steam quits while the game runs?** The game keeps running: the kit writes
+`SteamLost` once, stops pumping Steam and answers every request (also the ones still waiting)
+with its feature's `NoBackend` error ([details](#when-steam-quits)). From Steam's shutdown
+callback on, the kit makes no Steam call at all; stop calling Steam through your own
+`steamworks::Client` then too. It does not reconnect to a restarted Steam client.
 
-**Rich-presence connect strings must be UTF-8.** `steamworks` 0.12.2 converts an incoming
-"Join Game" connect string with `expect` (a non-UTF-8 string panics inside the callback pump,
-before this crate sees it). The strings this crate writes are always ASCII (`+connect_lobby`
-plus a decimal id); keep any custom `connect_prefix` ASCII too.
+**Does that need `panic = "unwind"`?** No. The panics `steamworks` 0.12.2 has on Steam's
+shutdown callback and on a connect string that is not UTF-8 are prevented before they happen, so
+a `panic = "abort"` build keeps running too. Only a panic inside the pump that the kit does not
+prevent needs unwinding to be caught; with `panic = "abort"` it ends the process.
 
-**Stats: other players' stats, global stats, AVGRATE stats, icons?** Not in this version:
-`steamworks` 0.12.2 can request but not read other users' stats, has no global-stats or
-`UpdateAvgRateStat` wrapper, and only returns 64x64 icons. The kit covers the local user's INT and
-FLOAT stats and achievements.
+**A connect string that is not UTF-8?** It arrives with every invalid byte replaced by `?`:
+`steamworks` 0.12.2 would panic on it, so the kit fixes the raw string before `steamworks`
+reads it ([details](#when-steam-quits)). The strings this crate writes are always ASCII
+(`+connect_lobby` plus a decimal id); keep any custom `connect_prefix` ASCII too.
 
-**Leaderboards: entries of chosen users, UGC attachments, a failure reason?** Not available in
-`steamworks` 0.12.2 (no wrapper, and the results of unwrapped calls cannot be received), and
-upload failures carry no reason in Steam's own API. Download `Friends` or a `Global` range and
-filter instead.
+**Friends: why poll?** Steam sends no callback to this `steamworks` version when a friend's
+rich presence changes, so the kit re-reads the list every `refresh_interval` (local Steam cache
+reads, no network traffic).
+Persona changes (name, status, game, avatar, friendship) arrive by callback and are applied in
+the same frame.
+
+**Checking a Web API ticket on the server?** That is your server's code: Steam's
+`ISteamUserAuth/AuthenticateUserTicket` with your publisher Web API key (never in the game), the
+app id, the ticket hex and the same identity.
 
 **Dedicated servers?** A dedicated server has no Steam user and no friends list; lobbies,
-presence and invites are user features. Do not add the backend there.
+presence, invites, tickets and the overlay are user features. Do not add the backend there.
 
-**Is anything saved or networked by the crate?** No. Lobby state, stats, achievements and
-leaderboards live on Steam; the crate only mirrors which lobby this process is in and what it is
-still waiting for.
+**Is anything saved or networked by the crate?** No. Lobby state, stats, achievements,
+leaderboards and the friends list live on Steam; the crate only mirrors in memory which lobby
+this process is in, the friends list it read, the tickets it holds, and what it is still waiting
+for.
 
 ## License
 
@@ -1398,7 +2040,7 @@ at your option.
 ## Contributing
 
 Issues and pull requests are welcome. Before opening a pull request, please run (at least for
-`--no-default-features`, each single feature, and `--all-features`; CI covers twelve sets):
+`--no-default-features`, each single feature, and `--all-features`; CI covers 23 sets):
 
 ```text
 cargo fmt --all --check

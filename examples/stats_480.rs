@@ -68,9 +68,11 @@ struct Run {
     mode: Mode,
     phase: Phase,
     before: Option<Snapshot>,
+    /// A stats error or a round-trip mismatch: exit with an error code.
+    failed: bool,
 }
 
-fn main() {
+fn main() -> AppExit {
     let app_id: u32 = std::env::var("STEAM_APP_ID").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(480);
     let mode = match std::env::args().nth(1).as_deref() {
         Some("--play") => Mode::Play,
@@ -84,7 +86,7 @@ fn main() {
         Ok(client) => client,
         Err(e) => {
             eprintln!("Steam could not start (is the Steam client running and logged in?): {e}");
-            return;
+            return AppExit::error();
         }
     };
     println!("Steam is up: app {app_id}, mode {mode:?}");
@@ -97,10 +99,10 @@ fn main() {
             SteamKitPlugin::default().with_stats(StatsSettings { probe: Some(GAMES.into()), ..Default::default() }),
         ))
         .insert_resource(SteamBackendRes(Box::new(RealSteamBackend::new(client))))
-        .insert_resource(Run { mode, phase: Phase::WaitReady, before: None })
+        .insert_resource(Run { mode, phase: Phase::WaitReady, before: None, failed: false })
         .add_systems(Update, (drive, print_facts).before(SteamKitSystems::Requests))
         .add_systems(Update, time_limit)
-        .run();
+        .run()
 }
 
 /// Every Spacewar stat and achievement, on one line.
@@ -207,6 +209,7 @@ fn drive(
             println!("[{t:6.2}s] restored and stored. {GAMES} = {:?}, {FEET} = {:?}, {WIN_ONE} unlocked = {:?}", now.games, now.feet, now.win_one);
             if let Some(before) = run.before {
                 let same = now.games == before.games && now.feet == before.feet && now.win_one == before.win_one;
+                run.failed |= !same;
                 println!("[{t:6.2}s] round trip {}", if same { "OK: every value is back as it was" } else { "MISMATCH: values differ from the start" });
             }
             run.phase = Phase::Done;
@@ -217,11 +220,12 @@ fn drive(
     if run.phase == Phase::Done {
         print_all(&backend, t, "all at end");
         println!("[{t:6.2}s] done");
-        exit.write(AppExit::Success);
+        exit.write(if run.failed { AppExit::error() } else { AppExit::Success });
     }
 }
 
 fn print_facts(
+    mut run: ResMut<Run>,
     mut unlocked: MessageReader<AchievementUnlocked>,
     mut progress: MessageReader<AchievementProgress>,
     mut errors: MessageReader<StatsError>,
@@ -235,6 +239,7 @@ fn print_facts(
         println!("[{t:6.2}s] achievement progress shown: {} {}/{}", ev.name, ev.current, ev.max);
     }
     for err in errors.read() {
+        run.failed = true;
         println!("[{t:6.2}s] stats error {:?} {:?}: {}", err.kind, err.name, err.message);
     }
 }

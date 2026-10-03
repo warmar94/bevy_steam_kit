@@ -462,3 +462,76 @@ fn removing_the_backend_between_pump_and_callbacks_drops_that_frames_events_with
     assert!(seen::<LobbyError>(&app).is_empty());
     assert_eq!(lobby(&app), SteamLobby::default());
 }
+
+#[test]
+fn launch_args_that_are_not_unicode_are_skipped() {
+    use std::ffi::OsString;
+    #[cfg(windows)]
+    let bad: OsString = {
+        use std::os::windows::ffi::OsStringExt;
+        OsString::from_wide(&[0xD800]) // a lone surrogate
+    };
+    #[cfg(unix)]
+    let bad: OsString = {
+        use std::os::unix::ffi::OsStringExt;
+        OsString::from_vec(vec![0xff, 0xfe])
+    };
+    let args = vec![OsString::from("-novid"), bad, OsString::from("+connect_lobby"), OsString::from("42")];
+    let text = super::launch_text(args.into_iter(), "");
+    assert_eq!(text, "-novid +connect_lobby 42 ");
+    assert_eq!(parse_connect_lobby(&text, "+connect_lobby"), Some(42));
+    assert_eq!(super::launch_text(std::iter::empty(), "+connect_lobby 7"), " +connect_lobby 7");
+}
+
+#[test]
+fn steam_lost_clears_the_lobby_and_answers_a_create_in_flight_once() {
+    let fake = FakeSteamBackend::new();
+    let mut app = app_with(Some(&fake));
+    // In a lobby: Steam lost -> `current` cleared, one `LobbyLeft`, no error.
+    app.world_mut().write_message(create_msg());
+    frames(&mut app, 2);
+    let open = lobby(&app).current.expect("lobby open");
+    let generation = lobby(&app).generation;
+    fake.simulate_steam_exit();
+    frames(&mut app, 1);
+    assert_eq!(lobby(&app).current, None);
+    assert_ne!(lobby(&app).generation, generation);
+    assert_eq!(seen::<LobbyLeft>(&app), vec![LobbyLeft { lobby: open }]);
+    assert!(seen::<LobbyError>(&app).is_empty());
+    frames(&mut app, 3);
+    assert_eq!(seen::<LobbyLeft>(&app).len(), 1);
+
+    // A create in flight: answered NoBackend exactly once, `pending_create` cleared.
+    let fake = FakeSteamBackend::new();
+    fake.set_auto_complete_create(false);
+    let mut app = app_with(Some(&fake));
+    app.world_mut().write_message(create_msg());
+    frames(&mut app, 2);
+    assert!(lobby(&app).pending_create);
+    fake.simulate_steam_exit();
+    frames(&mut app, 5);
+    assert_eq!(seen::<LobbyError>(&app).iter().map(|e| e.kind).collect::<Vec<_>>(), vec![LobbyErrorKind::NoBackend]);
+    assert_eq!(SteamLobby { generation: 0, ..lobby(&app) }, SteamLobby::default());
+    assert!(seen::<LobbyCreated>(&app).is_empty());
+}
+
+#[test]
+fn steam_lost_answers_a_join_in_flight_once() {
+    let fake = FakeSteamBackend::new();
+    let mut app = app_with(Some(&fake));
+    frames(&mut app, 1);
+    app.world_mut().write_message(JoinLobby { lobby: 42 });
+    frames(&mut app, 1);
+    assert_eq!(lobby(&app).pending_join, Some(42));
+    // The join's answer is lost with the pump (a caught panic drops that frame's events).
+    fake.panic_in_next_pump();
+    frames(&mut app, 4);
+    assert_eq!(seen::<LobbyError>(&app).iter().map(|e| e.kind).collect::<Vec<_>>(), vec![LobbyErrorKind::NoBackend]);
+    assert_eq!(lobby(&app).pending_join, None);
+    assert!(seen::<LobbyEntered>(&app).is_empty());
+    assert!(seen::<LobbyLeft>(&app).is_empty());
+    // New requests afterwards: NoBackend as without a backend.
+    app.world_mut().write_message(JoinLobby { lobby: 43 });
+    frames(&mut app, 1);
+    assert_eq!(seen::<LobbyError>(&app).len(), 2);
+}

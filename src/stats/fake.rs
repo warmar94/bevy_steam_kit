@@ -62,7 +62,7 @@ impl FakeSteamBackend {
         self.lock().stats.achievements.insert(name.to_string(), unlocked);
     }
 
-    /// `false`: every stats call fails as if Steam had not loaded the stats yet (default `true`).
+    /// `false`: every stats call fails as if Steam had not loaded the stats (default `true`).
     pub fn set_stats_ready(&self, ready: bool) {
         self.lock().stats.ready = ready;
     }

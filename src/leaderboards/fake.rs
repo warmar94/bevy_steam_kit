@@ -1,7 +1,7 @@
 //! The leaderboard half of [`FakeSteamBackend`] (feature `leaderboards`): in-memory boards.
 //!
-//! Simplifications: ties rank by earlier upload, and an around-user window is clipped at the
-//! board's edges; neither is verified against real Steam.
+//! In the fake, ties rank by earlier upload, and an around-user window is clipped at the board's
+//! edges.
 
 use std::collections::{HashMap, HashSet};
 

@@ -99,7 +99,7 @@ impl Default for LeaderboardSettings {
 /// among pending requests. Ids may also be chosen by hand; keep them unique while pending (an id
 /// may be reused once its answer arrived). To MIX both, keep hand-picked ids at or above
 /// [`LeaderboardRequestId::FIRST_MANUAL`]: the kit never issues those, so the two can never
-/// collide (a hand-picked id below it may collide with a kit id that is written but not yet
+/// collide (a hand-picked id below it may collide with a kit id that is written but not
 /// handled, which is then rejected as `DuplicateId`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LeaderboardRequestId(pub u64);
@@ -225,7 +225,7 @@ impl SteamLeaderboards {
     pub fn uploads_queued(&self) -> usize {
         self.upload_queue.len()
     }
-    /// An upload was started and its answer has not arrived yet.
+    /// An upload was started and its answer has not arrived.
     pub fn upload_in_flight(&self) -> bool {
         self.upload_in_flight.is_some()
     }
@@ -257,7 +257,7 @@ impl SteamLeaderboards {
 // Messages
 // ---------------------------------------------------------------------------------------------
 
-/// A leaderboard request. `#[non_exhaustive]`: later versions may add kinds (the variants are
+/// A leaderboard request. `#[non_exhaustive]`: match with a `_` arm (the variants are
 /// built as usual).
 #[derive(Message, Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -403,8 +403,7 @@ pub enum LeaderboardErrorKind {
     /// No board with this name.
     NotFound,
     /// Steam did not accept the upload and gave no reason (for example a "trusted" board that
-    /// only takes scores from a server; whether Steam's rate limit shows up this way is not
-    /// verified).
+    /// only takes scores from a server).
     UploadRejected,
     /// Steam answered with `IOFailure` (the only failure steamworks 0.12.2 reports).
     IoFailure,

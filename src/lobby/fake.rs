@@ -38,7 +38,7 @@ impl FakeSteamBackend {
         self.lock().lobby.auto_complete_create = auto;
     }
 
-    /// Make future `join_lobby` calls fail (`false`) or succeed (`true`).
+    /// Make the following `join_lobby` calls fail (`false`) or succeed (`true`).
     pub fn set_join_succeeds(&self, ok: bool) {
         self.lock().lobby.join_succeeds = ok;
     }

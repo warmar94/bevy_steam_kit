@@ -77,12 +77,12 @@ pub struct LeaderboardEntry {
 ///
 /// Asynchronous calls return whether the call was started (`false`: refused, e.g. an unknown
 /// handle); their outcome is returned as a [`BackendEvent`](crate::BackendEvent) carrying the same
-/// `op` by a later [`SteamBackend::pump`](crate::SteamBackend::pump). An implementation must NEVER
+/// `op` by a following [`SteamBackend::pump`](crate::SteamBackend::pump). An implementation must NEVER
 /// call Steam from inside a call-result closure (steamworks holds its own lock there: a nested
 /// call deadlocks); closures only queue events.
 ///
 /// You may implement it for your own backend. Stability promise: the methods below stay required
-/// as they are, and every method added in a later version comes with a default implementation.
+/// as they are, and every method added to this trait comes with a default implementation.
 pub trait LeaderboardBackend {
     /// Find a leaderboard by name, creating it with `create` when given and missing. Outcome:
     /// `LeaderboardFound`, `LeaderboardNotFound` or `LeaderboardIoFailure` with this `op`.

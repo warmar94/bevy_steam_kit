@@ -83,7 +83,7 @@ pub struct StatsSettings {
     /// Never two stores closer than this. Default 10 s.
     pub min_store_gap: Duration,
     /// A store whose outcome has not arrived after this long is given up
-    /// ([`StatsErrorKind::StoreTimedOut`]) and the changes are stored again later. Default 30 s.
+    /// ([`StatsErrorKind::StoreTimedOut`]) and the changes are stored again. Default 30 s.
     pub store_timeout: Duration,
     /// Store unsaved changes on `AppExit`. Default `true`.
     pub store_on_exit: bool,
@@ -139,7 +139,7 @@ impl SteamStats {
     pub fn has_unsaved(&self) -> bool {
         self.unsaved_changes() || !self.queued.is_empty()
     }
-    /// A store was started and its outcome has not arrived yet.
+    /// A store was started and its outcome has not arrived.
     pub fn store_in_flight(&self) -> bool {
         self.in_flight_since.is_some()
     }
@@ -147,7 +147,9 @@ impl SteamStats {
     pub fn queued(&self) -> usize {
         self.queued.len()
     }
-    /// Stores started so far (including the exit store).
+    /// Store attempts so far (including the exit store). An attempt Steam refused locally
+    /// (`store_stats` returned `false`, reported as [`StatsErrorKind::StoreRefused`]) counts too,
+    /// and like any attempt it restarts [`StatsSettings::min_store_gap`].
     pub fn stores_started(&self) -> u64 {
         self.stores
     }
@@ -162,7 +164,7 @@ impl SteamStats {
 // ---------------------------------------------------------------------------------------------
 
 /// A stats request. All kinds travel in this ONE message type, so they are applied in the order
-/// they were written. `#[non_exhaustive]`: later versions may add kinds (construct the variants,
+/// they were written. `#[non_exhaustive]`: match with a `_` arm (construct the variants,
 /// or use the helper constructors, as usual).
 #[derive(Message, Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -309,7 +311,7 @@ pub enum StatsErrorKind {
     /// Steam rejected the store (`InvalidParameter`: a stat broke a constraint set on the partner
     /// site). Steam restored its values: read them again.
     StoreRejected,
-    /// The store failed for another reason (the changes are stored again later).
+    /// The store failed for another reason (the changes are stored again).
     StoreFailed,
     /// No store outcome arrived within [`StatsSettings::store_timeout`] (the changes are stored
     /// again later).
@@ -453,7 +455,7 @@ fn apply_stats_events(backend: Option<Res<SteamBackendRes>>, pumped: Res<PumpedE
             BackendEvent::StatsStoreFailed { message } => {
                 stats.in_flight_since = None;
                 stats.retry_store = true;
-                warn!(">>> STEAM: stats store FAILED: {message} (will store again)");
+                warn!(">>> STEAM: stats store FAILED: {message} (stored again)");
                 out.error.write(StatsError::new(StatsErrorKind::StoreFailed, None, format!("store failed: {message}")));
             }
             BackendEvent::AchievementStored { name, current, max } => {
@@ -561,7 +563,7 @@ fn apply(req: &StatsRequest, api: &dyn StatsBackend, now: Duration, stats: &mut 
                 return true;
             }
             if api.unlock_achievement(name) {
-                info!(">>> STEAM: achievement {name} set (stored soon)");
+                info!(">>> STEAM: achievement {name} set (stored at the next store)");
                 stats.dirty_achievements_since.get_or_insert(now);
                 true
             } else {
@@ -571,7 +573,7 @@ fn apply(req: &StatsRequest, api: &dyn StatsBackend, now: Duration, stats: &mut 
         }
         StatsRequest::ClearAchievement { name } => {
             if api.clear_achievement(name) {
-                info!(">>> STEAM: achievement {name} cleared (stored soon)");
+                info!(">>> STEAM: achievement {name} cleared (stored at the next store)");
                 stats.dirty_achievements_since.get_or_insert(now);
                 true
             } else {
@@ -688,7 +690,7 @@ fn store_policy(api: &dyn StatsBackend, clock: Clock, settings: &StatsSettings, 
         if clock.waited(Some(since), settings.store_timeout) {
             stats.in_flight_since = None;
             restore_unsaved(stats, now);
-            warn!(">>> STEAM: stats store timed out (will store again)");
+            warn!(">>> STEAM: stats store timed out (stored again)");
             out.error.write(StatsError::new(StatsErrorKind::StoreTimedOut, None, "no store outcome arrived in time"));
         } else {
             return;
@@ -722,7 +724,7 @@ fn store_policy(api: &dyn StatsBackend, clock: Clock, settings: &StatsSettings, 
         }
         if !stats.refusal_reported {
             stats.refusal_reported = true;
-            warn!(">>> STEAM: stats store REFUSED by Steam (will try again; reported once)");
+            warn!(">>> STEAM: stats store REFUSED by Steam (tried again; reported once)");
             out.error.write(StatsError::new(StatsErrorKind::StoreRefused, None, "store refused (no stats for this app, or not loaded)"));
         }
     }

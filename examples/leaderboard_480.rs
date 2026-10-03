@@ -33,9 +33,11 @@ struct Plan {
     /// Answers still expected.
     waiting: usize,
     started: bool,
+    /// An error answer arrived: exit with an error code.
+    failed: bool,
 }
 
-fn main() {
+fn main() -> AppExit {
     let app_id: u32 = std::env::var("STEAM_APP_ID").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(480);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let arg = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned();
@@ -47,7 +49,7 @@ fn main() {
         Ok(client) => client,
         Err(e) => {
             eprintln!("Steam could not start (is the Steam client running and logged in?): {e}");
-            return;
+            return AppExit::error();
         }
     };
     println!("Steam is up: app {app_id}, board {board:?}, upload {upload:?}");
@@ -59,10 +61,10 @@ fn main() {
             SteamKitPlugin::default().with_leaderboards(LeaderboardSettings::default()),
         ))
         .insert_resource(SteamBackendRes(Box::new(RealSteamBackend::new(client))))
-        .insert_resource(Plan { board, upload, show_ids, waiting: 0, started: false })
+        .insert_resource(Plan { board, upload, show_ids, waiting: 0, started: false, failed: false })
         .add_systems(Update, (start, answers).chain().before(SteamKitSystems::Requests))
         .add_systems(Update, time_limit)
-        .run();
+        .run()
 }
 
 fn start(mut plan: ResMut<Plan>, mut ids: ResMut<SteamLeaderboards>, mut boards: MessageWriter<LeaderboardRequest>, time: Res<Time<Real>>) {
@@ -131,11 +133,12 @@ fn answers(
     }
     for e in a.errors.read() {
         plan.waiting = plan.waiting.saturating_sub(1);
+        plan.failed = true;
         println!("[{t:6.2}s] #{} error {:?}: {}", e.id.0, e.kind, e.message);
     }
     if plan.started && plan.waiting == 0 {
         println!("[{t:6.2}s] done");
-        exit.write(AppExit::Success);
+        exit.write(if plan.failed { AppExit::error() } else { AppExit::Success });
     }
 }
 

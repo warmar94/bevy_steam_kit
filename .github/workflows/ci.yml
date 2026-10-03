@@ -23,23 +23,35 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
-  # Every feature combination: each one must compile cleanly on its own (no feature may rely on another).
+  # The feature sets: none; each feature alone and with `steam` (no feature may rely on another; the
+  # real-Steam half of a feature compiles only with `steam`); the pairs that share code or names; all.
   clippy:
     strategy:
       fail-fast: false
       matrix:
         features:
           - "--no-default-features"
+          - "--features steam"
           - "--features lobby"
           - "--features stats"
           - "--features leaderboards"
-          - "--features lobby,stats"
-          - "--features lobby,leaderboards"
-          - "--features stats,leaderboards"
-          - "--features steam"
+          - "--features auth"
+          - "--features friends"
+          - "--features overlay"
           - "--features lobby,steam"
           - "--features stats,steam"
           - "--features leaderboards,steam"
+          - "--features auth,steam"
+          - "--features friends,steam"
+          - "--features overlay,steam"
+          - "--features lobby,stats"
+          - "--features lobby,leaderboards"
+          - "--features stats,leaderboards"
+          - "--features lobby,friends"
+          - "--features lobby,auth"
+          - "--features stats,friends"
+          - "--features friends,leaderboards"
+          - "--features friends,overlay"
           - "--all-features"
     runs-on: ubuntu-latest
     steps:
@@ -71,6 +83,14 @@ jobs:
       - run: cargo test --features lobby,stats
       - run: cargo test --features lobby,leaderboards
       - run: cargo test --features stats,leaderboards
+      - run: cargo test --features auth
+      - run: cargo test --features friends
+      - run: cargo test --features overlay
+      - run: cargo test --features lobby,friends
+      - run: cargo test --features lobby,auth
+      - run: cargo test --features stats,friends
+      - run: cargo test --features friends,leaderboards
+      - run: cargo test --features friends,overlay
       # The `steam` feature links the Steam API redistributable that steamworks-sys ships; building
       # needs no Steam client. Everything (tests, examples) is built with it on every OS ...
       - run: cargo build --features steam --tests --examples
@@ -83,6 +103,14 @@ jobs:
         run: cargo test --features stats,steam
       - if: runner.os == 'Windows'
         run: cargo test --features leaderboards,steam
+      - if: runner.os == 'Windows'
+        run: cargo test --features lobby,steam
+      - if: runner.os == 'Windows'
+        run: cargo test --features auth,steam
+      - if: runner.os == 'Windows'
+        run: cargo test --features friends,steam
+      - if: runner.os == 'Windows'
+        run: cargo test --features overlay,steam
       - if: runner.os == 'Windows'
         run: cargo test --all-features
 

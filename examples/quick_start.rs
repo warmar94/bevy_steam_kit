@@ -20,7 +20,7 @@ const FRIEND_LOBBY: u64 = 4242;
 #[derive(Resource)]
 struct Fake(FakeSteamBackend);
 
-fn main() {
+fn main() -> AppExit {
     let fake = FakeSteamBackend::new();
     // What the friend's game wrote into their lobby.
     fake.put_lobby_data(FRIEND_LOBBY, "host", "76561197960265730");
@@ -34,7 +34,7 @@ fn main() {
         .add_systems(Startup, host)
         .add_systems(Update, (on_created, on_join_requested, on_entered, on_left, on_error).before(SteamKitSystems::Requests))
         .add_systems(Update, stop_after_a_few_frames)
-        .run();
+        .run()
 }
 
 /// Host a lobby. The data is whatever YOUR game needs a joiner to know.
@@ -78,9 +78,11 @@ fn on_left(mut left: MessageReader<LobbyLeft>) {
     }
 }
 
-fn on_error(mut errors: MessageReader<LobbyError>) {
+fn on_error(mut errors: MessageReader<LobbyError>, mut exit: MessageWriter<AppExit>) {
     for err in errors.read() {
         println!("LobbyError: {:?}: {}", err.kind, err.message);
+        // An error code wins over the `Success` written at the end.
+        exit.write(AppExit::error());
     }
 }
 

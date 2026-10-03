@@ -4,7 +4,7 @@
 //!
 //! Needs the `steam` feature, a running and logged-in Steam client, and (the usual development
 //! setup) a `steam_appid.txt` in the working directory containing your app id. For development use
-//! `480` (Valve's public test app "Spacewar"); Steam will show "Spacewar" as the game being played.
+//! `480` (Valve's public test app "Spacewar"); Steam shows "Spacewar" as the game being played.
 //! The app id is read from the `STEAM_APP_ID` environment variable (default 480) and passed to
 //! `Client::init_app`.
 //!
@@ -29,7 +29,7 @@ use bevy_steam_kit::*;
 #[derive(Resource)]
 struct InviteOnOpen(Option<u64>);
 
-fn main() {
+fn main() -> AppExit {
     let app_id: u32 = std::env::var("STEAM_APP_ID").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(480);
     let invite = std::env::args().nth(1).and_then(|a| a.trim().parse::<u64>().ok());
 
@@ -37,7 +37,7 @@ fn main() {
         Ok(client) => client,
         Err(e) => {
             eprintln!("Steam could not start (is the Steam client running and logged in?): {e}");
-            return;
+            return AppExit::error();
         }
     };
     println!("Steam is up: app {app_id}, you are {} ({})", client.friends().name(), client.user().steam_id().raw());
@@ -49,7 +49,7 @@ fn main() {
         .insert_resource(InviteOnOpen(invite))
         .add_systems(Startup, create)
         .add_systems(Update, (on_created, on_join_requested, on_invite_sent, on_error).before(SteamKitSystems::Requests))
-        .run();
+        .run()
 }
 
 fn create(mut create: MessageWriter<CreateLobby>, backend: Res<SteamBackendRes>) {

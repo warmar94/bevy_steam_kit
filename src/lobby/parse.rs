@@ -8,6 +8,9 @@ pub fn connect_string(prefix: &str, lobby: u64) -> String {
 /// Find `<prefix> <lobby>` (whitespace separated) anywhere in `text` - a rich-presence connect
 /// string, a full command line, or process arguments joined with spaces - and return the lobby
 /// id. `<prefix>=<lobby>` is accepted too. `None` when missing, malformed, or `0`.
+///
+/// Only the FIRST `<prefix>` token counts: when its value is malformed the result is `None`, even
+/// if a valid `<prefix> <lobby>` follows it in `text`.
 pub fn parse_connect_lobby(text: &str, prefix: &str) -> Option<u64> {
     let prefix = prefix.trim();
     if prefix.is_empty() {

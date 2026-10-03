@@ -17,12 +17,19 @@ use bevy_ecs::prelude::Resource;
 /// frame in [`crate::SteamKitSystems::Pump`] and every compiled feature turns its own variants into
 /// public messages in [`crate::SteamKitSystems::Callbacks`].
 ///
-/// `#[non_exhaustive]`: variants are added by features (and by future versions), so a `match`
-/// outside this crate needs a `_` arm. `PartialEq` only (no `Eq`), so a later variant may carry a
-/// float.
+/// `#[non_exhaustive]`: the variants depend on the compiled features, so a `match` outside this
+/// crate needs a `_` arm. `PartialEq` only (no `Eq`), so a variant may carry a float.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum BackendEvent {
+    /// Steam is gone for this process (the core's event, compiled with every feature set). After
+    /// this frame's events were applied, the kit replaces the backend inside [`SteamBackendRes`]
+    /// by an inert one (it is never pumped again) and writes [`crate::SteamLost`]. A backend
+    /// returns it once.
+    SteamLost {
+        /// Why.
+        reason: SteamLostReason,
+    },
     /// A `create_lobby` call completed successfully.
     #[cfg(feature = "lobby")]
     LobbyCreated {
@@ -144,23 +151,78 @@ pub enum BackendEvent {
         /// The operation this answers.
         op: u64,
     },
+    /// Steam `GetTicketForWebApiResponse`: the answer to a Web API ticket request. The ticket's
+    /// `Debug` shows its length only.
+    #[cfg(feature = "auth")]
+    WebApiTicket {
+        /// The operation this answers.
+        op: u64,
+        /// The ticket, or Steam's failure text.
+        result: Result<crate::WebApiTicket, String>,
+    },
+    /// Steam `PersonaStateChange`: something about a user changed (name, status, game, avatar,
+    /// the friendship itself, ...).
+    #[cfg(feature = "friends")]
+    PersonaChanged {
+        /// The user (raw SteamID64).
+        steam_id: u64,
+        /// Steam's raw `EPersonaChange` bits: `0x1` name, `0x2` status, `0x4` came online, `0x8`
+        /// went offline, `0x10` game played, `0x20` game server, `0x40` avatar, `0x200`
+        /// relationship (friend added or removed), `0x1000` nickname, ...
+        flags: u32,
+    },
+    /// Steam `GameRichPresenceJoinRequested`, raw: the connect string as Steam delivered it (the
+    /// `lobby` feature reads the same callback as its own `RichPresenceJoinRequested`).
+    #[cfg(feature = "friends")]
+    ConnectRequested {
+        /// The friend it came from (raw SteamID64; may be invalid when not from a friend).
+        from: u64,
+        /// The connect string.
+        connect: String,
+    },
+    /// Steam `GameOverlayActivated`: the overlay opened (`true`) or closed (`false`).
+    #[cfg(feature = "overlay")]
+    OverlayActivated {
+        /// The overlay is open now.
+        active: bool,
+    },
+}
+
+/// Why Steam is gone ([`BackendEvent::SteamLost`], [`crate::SteamLost`]). `#[non_exhaustive]`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum SteamLostReason {
+    /// The Steam client quit (it sent its shutdown callback).
+    SteamExited,
+    /// The Steam client process ended without its shutdown callback (killed or crashed), as the
+    /// operating system reports it (or Steam's own process check where the kit has none).
+    SteamProcessEnded,
+    /// The backend's pump panicked (for example inside `steamworks`); the kit caught the panic.
+    /// Only possible in a build that unwinds on panic: with `panic = "abort"` the process ends.
+    /// After a panic of the real backend's pump, no `RealSteamBackend` of the process pumps or
+    /// calls Steam again.
+    PumpPanicked,
 }
 
 /// What the kit's core needs from Steam, plus one accessor per optional feature. Implementations
 /// must never panic; a failure is a `false` / `None` / an error event.
 ///
-/// Asynchronous calls return nothing: their outcome is queued and returned by a later
+/// Asynchronous calls return nothing: their outcome is queued and returned by a following
 /// [`pump`](Self::pump).
 pub trait SteamBackend: Send + Sync + 'static {
     /// The local user's SteamID64.
     fn local_id(&self) -> u64;
-    /// A user's persona name ("" when unknown).
+    /// A user's persona name. What an unknown user gives is the backend's: real Steam returns
+    /// `"[unknown]"` for a user it knows nothing about (Valve's `GetFriendPersonaName`), the fake
+    /// backend returns `""`.
     fn friend_name(&self, id: u64) -> String;
     /// The command line Steam launched the game with ("" when none).
     fn launch_command_line(&self) -> String;
     /// Pump Steam callbacks once and return everything that arrived since the last pump
     /// (callbacks + completed call results). Called by the kit exactly once per frame, in
-    /// [`crate::SteamKitSystems::Pump`]; never call it yourself.
+    /// [`crate::SteamKitSystems::Pump`]; never call it yourself. A backend that learns Steam is
+    /// gone returns [`BackendEvent::SteamLost`]; a panic in here is caught by the kit (in a build
+    /// that unwinds) and treated the same way ([`SteamLostReason::PumpPanicked`]).
     fn pump(&self) -> Vec<BackendEvent>;
 
     /// The lobby / rich presence / invite half of this backend (feature `lobby`). The default is
@@ -186,9 +248,32 @@ pub trait SteamBackend: Send + Sync + 'static {
     fn leaderboards(&self) -> Option<&dyn crate::LeaderboardBackend> {
         None
     }
+
+    /// The Web API ticket half of this backend (feature `auth`). The default is `None`: the auth
+    /// feature then answers requests with [`crate::AuthErrorKind::NoBackend`].
+    #[cfg(feature = "auth")]
+    fn auth(&self) -> Option<&dyn crate::AuthBackend> {
+        None
+    }
+
+    /// The friends half of this backend (feature `friends`). The default is `None`: the friends
+    /// feature then treats Steam as unavailable ([`crate::FriendsErrorKind::NoBackend`]).
+    #[cfg(feature = "friends")]
+    fn friends(&self) -> Option<&dyn crate::FriendsBackend> {
+        None
+    }
+
+    /// The overlay half of this backend (feature `overlay`). The default is `None`: the overlay
+    /// feature then answers requests with [`crate::OverlayErrorKind::NoBackend`].
+    #[cfg(feature = "overlay")]
+    fn overlay(&self) -> Option<&dyn crate::OverlayBackend> {
+        None
+    }
 }
 
 /// The active backend. Insert it to make the kit live; without it every system is inert (and
-/// feature requests are answered with a `NoBackend` error).
+/// feature requests are answered with a `NoBackend` error). When Steam is gone
+/// ([`crate::SteamLost`]) the kit keeps the resource but replaces the backend in it by an inert
+/// one (no pump, no feature; the identity queries still answer).
 #[derive(Resource)]
 pub struct SteamBackendRes(pub Box<dyn SteamBackend>);

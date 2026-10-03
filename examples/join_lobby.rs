@@ -27,7 +27,7 @@ use bevy_steam_kit::*;
 #[derive(Resource)]
 struct JoinOnStart(Option<u64>);
 
-fn main() {
+fn main() -> AppExit {
     let app_id: u32 = std::env::var("STEAM_APP_ID").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(480);
     // A bare id; a `+connect_lobby <id>` from Steam is picked up by the kit itself.
     let lobby = std::env::args().nth(1).and_then(|a| a.trim().parse::<u64>().ok());
@@ -36,10 +36,10 @@ fn main() {
         Ok(client) => client,
         Err(e) => {
             eprintln!("Steam could not start (is the Steam client running and logged in?): {e}");
-            return;
+            return AppExit::error();
         }
     };
-    // Warm up the relay network now, so a P2P connection to the host does not wait for it later.
+    // Warm up the relay network now, so a P2P connection to the host does not wait for it.
     client.networking_utils().init_relay_network_access();
     println!("Steam is up: app {app_id}, you are {} ({})", client.friends().name(), client.user().steam_id().raw());
     if lobby.is_none() {
@@ -52,7 +52,7 @@ fn main() {
         .insert_resource(JoinOnStart(lobby))
         .add_systems(Startup, join_on_start)
         .add_systems(Update, (on_join_requested, on_entered, on_error).before(SteamKitSystems::Requests))
-        .run();
+        .run()
 }
 
 fn join_on_start(start: Res<JoinOnStart>, mut join: MessageWriter<JoinLobby>) {

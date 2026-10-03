@@ -34,18 +34,18 @@ pub enum JoinSource {
 /// a `false` / `None` / an error event.
 ///
 /// Asynchronous calls (`create_lobby`, `join_lobby`) return nothing: their outcome is queued and
-/// returned as a [`BackendEvent`](crate::BackendEvent) by a later
+/// returned as a [`BackendEvent`](crate::BackendEvent) by a following
 /// [`SteamBackend::pump`](crate::SteamBackend::pump).
 ///
 /// You may implement it for your own backend. Stability promise: the methods below stay required
-/// as they are, and every method added in a later version comes with a default implementation, so
+/// as they are, and every method added to this trait comes with a default implementation, so
 /// an existing implementation keeps compiling.
 pub trait LobbyBackend {
     /// Start creating a lobby. Outcome: `BackendEvent::LobbyCreated` or
-    /// `BackendEvent::LobbyCreateFailed` from a later pump.
+    /// `BackendEvent::LobbyCreateFailed` from a following pump.
     fn create_lobby(&self, kind: LobbyKind, max_members: u32);
     /// Start joining a lobby. Outcome: `BackendEvent::LobbyEntered` or
-    /// `BackendEvent::LobbyJoinFailed` from a later pump.
+    /// `BackendEvent::LobbyJoinFailed` from a following pump.
     fn join_lobby(&self, lobby: u64);
     /// Leave a lobby (no-op if not a member).
     fn leave_lobby(&self, lobby: u64);

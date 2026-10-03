@@ -31,7 +31,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
 use tracing::{info, warn};
 
-use crate::{is_individual_steam_id64, BackendEvent, PumpedEvents, SteamBackendRes, SteamKitSystems};
+use crate::{is_individual_steam_id64, BackendEvent, PumpedEvents, SteamBackendRes, SteamKitSystems, SteamLost};
 
 /// Steam's hard cap on lobby members (`steamworks` asserts on more).
 pub const MAX_LOBBY_MEMBERS: u32 = 250;
@@ -80,7 +80,7 @@ pub(crate) fn build(app: &mut App, settings: &LobbySettings) {
         .add_message::<InviteSent>()
         .add_message::<LobbyError>()
         .add_systems(First, apply_lobby_events.in_set(SteamKitSystems::Callbacks))
-        .add_systems(Update, handle_requests.in_set(SteamKitSystems::Requests))
+        .add_systems(Update, (clear_on_steam_lost, handle_requests).chain().in_set(SteamKitSystems::Requests))
         .add_systems(Last, leave_on_exit.in_set(SteamKitSystems::Requests));
 }
 
@@ -334,9 +334,7 @@ fn apply_lobby_events(
 
     if settings.check_launch_args && !internals.launch_checked {
         internals.launch_checked = true;
-        let mut text: String = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
-        text.push(' ');
-        text.push_str(&backend.0.launch_command_line());
+        let text = launch_text(std::env::args_os().skip(1), &backend.0.launch_command_line());
         if let Some(lobby) = parse_connect_lobby(&text, &settings.connect_prefix) {
             info!(">>> STEAM: launched to join lobby {lobby}");
             out.join_requested.write(JoinRequested { lobby, from: 0, source: JoinSource::LaunchArgs });
@@ -346,6 +344,49 @@ fn apply_lobby_events(
     for ev in &pumped.0 {
         apply_event(ev, lobby_api, &settings, &mut state, &mut internals, &mut out);
     }
+}
+
+/// `Update` ([`SteamKitSystems::Requests`], before the requests): in the frame Steam is lost
+/// ([`SteamLost`]), clear [`SteamLobby`] (the current lobby is reported with [`LobbyLeft`]) and
+/// answer a create or join still in flight with [`LobbyErrorKind::NoBackend`], once each. Steam is
+/// not called (it is gone).
+fn clear_on_steam_lost(
+    mut lost: MessageReader<SteamLost>,
+    mut state: ResMut<SteamLobby>,
+    mut internals: ResMut<LobbyInternals>,
+    mut left: MessageWriter<LobbyLeft>,
+    mut error: MessageWriter<LobbyError>,
+) {
+    if lost.read().count() == 0 {
+        return;
+    }
+    let changed = state.current.is_some() || state.pending_create || state.pending_join.is_some();
+    if let Some(lobby) = state.current.take() {
+        info!(">>> STEAM: Steam is gone - lobby {lobby} dropped");
+        left.write(LobbyLeft { lobby });
+    }
+    if std::mem::take(&mut state.pending_create) {
+        warn!(">>> STEAM: Steam is gone - the lobby create in flight is answered NoBackend");
+        error.write(LobbyError::new(LobbyErrorKind::NoBackend, "create lobby: Steam is gone (SteamLost)"));
+    }
+    if let Some(lobby) = state.pending_join.take() {
+        warn!(">>> STEAM: Steam is gone - joining lobby {lobby} is answered NoBackend");
+        error.write(LobbyError::new(LobbyErrorKind::NoBackend, format!("join lobby {lobby}: Steam is gone (SteamLost)")));
+    }
+    let launch_checked = internals.launch_checked;
+    *internals = LobbyInternals { launch_checked, ..Default::default() };
+    if changed {
+        bump(&mut state);
+    }
+}
+/// The text the launch-args check searches: the process arguments joined with spaces, then Steam's
+/// launch command line. Arguments that are not valid Unicode are skipped (`std::env::args` would
+/// panic on them).
+pub(crate) fn launch_text(args: impl Iterator<Item = std::ffi::OsString>, launch_command_line: &str) -> String {
+    let mut text: String = args.filter_map(|a| a.into_string().ok()).collect::<Vec<_>>().join(" ");
+    text.push(' ');
+    text.push_str(launch_command_line);
+    text
 }
 
 /// One pumped event. Events of other features are ignored here.

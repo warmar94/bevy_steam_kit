@@ -1,10 +1,10 @@
 [package]
 name = "bevy_steam_kit"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 # Bevy 0.19's own minimum.
 rust-version = "1.95"
-description = "Steam for Bevy as opt-in features around one shared callback pump: lobbies, rich presence and friend-join requests (feature `lobby`), stats and achievements (feature `stats`), leaderboards (feature `leaderboards`), as Bevy messages, with a fake backend for tests."
+description = "Steam for Bevy as opt-in features around one shared callback pump: lobbies, rich presence and friend-join requests (feature `lobby`), stats and achievements (`stats`), leaderboards (`leaderboards`), Web API tickets (`auth`), the friends list and invites (`friends`), the overlay (`overlay`), as Bevy messages, with a fake backend for tests."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/warmar94/bevy_steam_kit"
 readme = "README.md"
@@ -19,18 +19,27 @@ default = []
 lobby = []
 # The real Steam backend (`RealSteamBackend`) over steamworks. Without it the crate still builds and
 # the fake backend works, so games and tests compile on machines without the Steam SDK runtime.
-steam = ["dep:steamworks"]
+# Raw bindings: the guard against steamworks' panic on Steam's shutdown callback and the
+# "is Steam still running" check (src/real.rs).
+steam = ["dep:steamworks", "steamworks/raw-bindings"]
 # User stats and achievements (the `stats` module). Uses Bevy's real-time clock for its store cadence.
 stats = ["dep:bevy_time", "steamworks?/raw-bindings"]
 # Leaderboards: find, upload and download scores (the `leaderboards` module).
 leaderboards = ["dep:bevy_time"]
+# Steam Web API tickets for logging in to a game server (the `auth` module).
+auth = ["dep:bevy_time"]
+# The friends list, persona states, games, invites with any connect string and raw join requests
+# (the `friends` module). Persona states and friends' rich presence are read through raw bindings.
+friends = ["dep:bevy_time", "steamworks?/raw-bindings"]
+# The Steam overlay: dialogs, store and web pages, invite dialogs, open / closed (the `overlay` module).
+overlay = []
 
 # Bevy is pinned EXACTLY and only its sub-crates are used, without default features: the crate adds
 # no Bevy feature a game did not ask for, and a game on Bevy 0.19.0 ends up with ONE Bevy.
 [dependencies]
 bevy_app = { version = "=0.19.0", default-features = false, features = ["std"] }
 bevy_ecs = { version = "=0.19.0", default-features = false, features = ["std"] }
-# The stats and leaderboards features' clock (`Time<Real>`) for store cadence and timeouts.
+# The clock (`Time<Real>`) of the stats, leaderboards, auth and friends features: cadence, timeouts, refreshes.
 bevy_time = { version = "=0.19.0", default-features = false, features = ["std"], optional = true }
 # Bevy's logging goes through `tracing`; its subscriber (LogPlugin) picks these messages up.
 tracing = { version = "0.1", default-features = false, features = ["std"] }
@@ -59,6 +68,22 @@ required-features = ["steam", "stats"]
 name = "leaderboard_480"
 required-features = ["steam", "leaderboards"]
 
+[[example]]
+name = "auth_480"
+required-features = ["steam", "auth"]
+
+[[example]]
+name = "friends_480"
+required-features = ["steam", "friends"]
+
+[[example]]
+name = "overlay_480"
+required-features = ["steam", "overlay"]
+
+[[example]]
+name = "steam_exit_480"
+required-features = ["steam", "auth", "friends"]
+
 # Fake backend, runs anywhere.
 [[example]]
 name = "quick_start"
@@ -75,6 +100,22 @@ required-features = ["stats"]
 [[test]]
 name = "leaderboards"
 required-features = ["leaderboards"]
+
+[[test]]
+name = "auth"
+required-features = ["auth"]
+
+[[test]]
+name = "auth_logs"
+required-features = ["auth"]
+
+[[test]]
+name = "friends"
+required-features = ["friends"]
+
+[[test]]
+name = "overlay"
+required-features = ["overlay"]
 
 
 [package.metadata.docs.rs]
