@@ -916,8 +916,8 @@ the `bevy_net_session` README, section "Combining it with Steam lobbies".
 
 **The manual way.** Wiring `renet_steam` yourself works too. This recipe uses `bevy_replicon`
 0.45, `bevy_replicon_renet` and its `renet_steam` 3.0.0 transport, which uses the same
-`steamworks` 0.12.2 (one copy in the build). `bevy_replicon_renet`'s Bevy 0.20 version is not on
-crates.io yet; until it is, take it from its repository:
+`steamworks` 0.12.2 (one copy in the build). `bevy_replicon_renet`'s Bevy 0.20 version is on its
+repository's main branch:
 
 ```toml
 [dependencies]
@@ -1911,7 +1911,7 @@ in `SteamKitSystems::Requests` (`Last`).
 
 | bevy_steam_kit | Bevy | steamworks | transport recipe (optional, your dependency) | Rust |
 |---|---|---|---|---|
-| 0.3 | 0.20.0 | 0.12.2 | bevy_replicon 0.45 / bevy_replicon_renet for Bevy 0.20 (pending) / renet_steam 3.0.0 | 1.97.1+ |
+| 0.3 | 0.20.0 | 0.12.2 | bevy_replicon 0.45 / bevy_replicon_renet main branch (git) / renet_steam 3.0.0 | 1.97.1+ |
 | 0.2 | 0.19.0 | 0.12.2 | bevy_replicon 0.44 / bevy_replicon_renet 0.20 / renet_steam 3.0.0 | 1.95+ |
 | 0.1 | 0.19.0 | 0.12.2 | bevy_replicon 0.44 / bevy_replicon_renet 0.20 / renet_steam 3.0.0 | 1.95+ |
 

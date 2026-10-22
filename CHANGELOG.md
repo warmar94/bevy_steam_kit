@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (before 1.0, a breaking
 change or a Bevy / steamworks bump raises the minor version).
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-10-22
 
 Bevy 0.20 release. No API or behaviour changes.
 
