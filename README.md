@@ -2,7 +2,7 @@
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![CI](https://github.com/warmar94/bevy_steam_kit/actions/workflows/ci.yml/badge.svg)](https://github.com/warmar94/bevy_steam_kit/actions/workflows/ci.yml)
-[![Bevy 0.19.0](https://img.shields.io/badge/Bevy-0.19.0-informational)](https://bevyengine.org)
+[![Bevy 0.20.0](https://img.shields.io/badge/Bevy-0.20.0-informational)](https://bevyengine.org)
 [![steamworks 0.12.2](https://img.shields.io/badge/steamworks-0.12.2-informational)](https://crates.io/crates/steamworks)
 [![crates.io](https://img.shields.io/crates/v/bevy_steam_kit.svg)](https://crates.io/crates/bevy_steam_kit)
 [![docs.rs](https://docs.rs/bevy_steam_kit/badge.svg)](https://docs.rs/bevy_steam_kit)
@@ -105,16 +105,16 @@ without a Steam client.
 
 ```toml
 [dependencies]
-bevy = "0.19.0"
-bevy_steam_kit = { version = "0.2.0", features = ["lobby", "stats", "leaderboards", "auth", "friends", "overlay", "steam"] }
+bevy = "0.20.0"
+bevy_steam_kit = { version = "0.3.0", features = ["lobby", "stats", "leaderboards", "auth", "friends", "overlay", "steam"] }
 ```
 
 or from the repository, pinned to a release tag:
 
 ```toml
 [dependencies]
-bevy = "0.19.0"
-bevy_steam_kit = { git = "https://github.com/warmar94/bevy_steam_kit", tag = "v0.2.0", features = ["lobby", "stats", "leaderboards", "auth", "friends", "overlay", "steam"] }
+bevy = "0.20.0"
+bevy_steam_kit = { git = "https://github.com/warmar94/bevy_steam_kit", tag = "v0.3.0", features = ["lobby", "stats", "leaderboards", "auth", "friends", "overlay", "steam"] }
 ```
 
 | feature | default | what it adds |
@@ -598,7 +598,7 @@ Enable the `steam` feature and add `steamworks` itself (the exact version the ki
 
 ```toml
 [dependencies]
-bevy_steam_kit = { version = "0.2.0", features = ["lobby", "steam"] }
+bevy_steam_kit = { version = "0.3.0", features = ["lobby", "steam"] }
 steamworks = "=0.12.2"
 ```
 
@@ -915,15 +915,16 @@ as in section 4. Do not add `bevy_net_session`'s example pump: the kit already p
 the `bevy_net_session` README, section "Combining it with Steam lobbies".
 
 **The manual way.** Wiring `renet_steam` yourself works too. This recipe uses `bevy_replicon`
-0.44, `bevy_replicon_renet` 0.20 and its `renet_steam` 3.0.0 transport, which uses the same
-`steamworks` 0.12.2 (one copy in the build):
+0.45, `bevy_replicon_renet` and its `renet_steam` 3.0.0 transport, which uses the same
+`steamworks` 0.12.2 (one copy in the build). `bevy_replicon_renet`'s Bevy 0.20 version is not on
+crates.io yet; until it is, take it from its repository:
 
 ```toml
 [dependencies]
-bevy_steam_kit = { version = "0.2.0", features = ["lobby", "steam"] }
+bevy_steam_kit = { version = "0.3.0", features = ["lobby", "steam"] }
 steamworks = "=0.12.2"
-bevy_replicon = "0.44"
-bevy_replicon_renet = { version = "0.20", features = ["renet_steam"] }
+bevy_replicon = "0.45"
+bevy_replicon_renet = { git = "https://github.com/simgine/bevy_replicon_renet", features = ["renet_steam"] }
 ```
 
 `RepliconRenetPlugins` adds the Steam transport plugins by itself when `renet_steam` is on. The
@@ -1910,6 +1911,7 @@ in `SteamKitSystems::Requests` (`Last`).
 
 | bevy_steam_kit | Bevy | steamworks | transport recipe (optional, your dependency) | Rust |
 |---|---|---|---|---|
+| 0.3 | 0.20.0 | 0.12.2 | bevy_replicon 0.45 / bevy_replicon_renet for Bevy 0.20 (pending) / renet_steam 3.0.0 | 1.97.1+ |
 | 0.2 | 0.19.0 | 0.12.2 | bevy_replicon 0.44 / bevy_replicon_renet 0.20 / renet_steam 3.0.0 | 1.95+ |
 | 0.1 | 0.19.0 | 0.12.2 | bevy_replicon 0.44 / bevy_replicon_renet 0.20 / renet_steam 3.0.0 | 1.95+ |
 

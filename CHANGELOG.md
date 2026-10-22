@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (before 1.0, a breaking
 change or a Bevy / steamworks bump raises the minor version).
 
+## [0.3.0] - Unreleased
+
+Bevy 0.20 release. No API or behaviour changes.
+
+### Changed
+
+- Bevy 0.20.0 (was 0.19.0). Rust 1.97.1+ (Bevy 0.20's minimum). steamworks stays at 0.12.2, the
+  version renet_steam 3.0.0 still requires.
+
 ## [0.2.0] - 2026-10-03
 
 ### Added
